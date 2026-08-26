@@ -37,6 +37,7 @@ import {
 import { slugify } from "@/lib/slugify";
 import { nextReceiptNo, receiptNoTaken } from "@/lib/receipts";
 import { rosterForSession } from "@/lib/attendance-data";
+import { toDateInput } from "@/lib/dates";
 
 async function requireRole(allowed: UserRole[]) {
   const session = await auth();
@@ -292,6 +293,67 @@ export async function markAttendance(
   revalidatePath("/dashboard/alumni");
 
   return { marked: entries.length - skipped, skipped };
+}
+
+/**
+ * Self check-in via the QR code shown on the coach dashboard for today's
+ * session. Only marks the caller, only for a session happening today, and
+ * only if they are actually on that session's register - the same
+ * roster/leave/join-date rules `markAttendance` enforces for a coach.
+ */
+export async function selfCheckIn(sessionId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+
+  const [trainingSession] = await db
+    .select({ date: trainingSessions.date, title: trainingSessions.title })
+    .from(trainingSessions)
+    .where(eq(trainingSessions.id, sessionId))
+    .limit(1);
+
+  if (!trainingSession) {
+    return { ok: false as const, error: "This session no longer exists." };
+  }
+  if (trainingSession.date !== toDateInput(new Date())) {
+    return { ok: false as const, error: "This check-in link is only valid on the day of the session." };
+  }
+
+  const roster = await rosterForSession(sessionId);
+  const entry = roster.find((r) => r.id === session.user.id);
+
+  if (!entry) {
+    return { ok: false as const, error: "You are not on this session's register." };
+  }
+  if (!entry.markable) {
+    return { ok: false as const, error: entry.reason ?? "You cannot check in to this session." };
+  }
+
+  const [existing] = await db
+    .select({ id: attendance.id })
+    .from(attendance)
+    .where(and(eq(attendance.sessionId, sessionId), eq(attendance.userId, session.user.id)))
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(attendance)
+      .set({ present: true, markedBy: session.user.id, markedAt: new Date() })
+      .where(eq(attendance.id, existing.id));
+  } else {
+    await db.insert(attendance).values({
+      sessionId,
+      userId: session.user.id,
+      present: true,
+      markedBy: session.user.id,
+    });
+  }
+
+  revalidatePath("/dashboard/coach");
+  revalidatePath("/dashboard/coach/attendance");
+  revalidatePath("/dashboard/student");
+  revalidatePath("/dashboard/alumni");
+
+  return { ok: true as const, title: trainingSession.title };
 }
 
 // ---------- Announcements (exco: president / VP / general secretary) ----------

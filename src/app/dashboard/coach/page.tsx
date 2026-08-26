@@ -14,6 +14,8 @@ import { CreateSessionForm } from "./create-session-form";
 import { SessionsList } from "./sessions-list";
 import { ApplicationReview } from "@/components/dashboard/application-review";
 import { MemberRegister } from "@/components/dashboard/member-register";
+import { SessionCheckInQr } from "@/components/dashboard/session-checkin-qr";
+import { toDateInput } from "@/lib/dates";
 
 export default async function CoachDashboardPage() {
   await requireRole(["coach"]);
@@ -48,12 +50,18 @@ export default async function CoachDashboardPage() {
       .orderBy(desc(applications.createdAt)),
   ]);
 
+  const activeSession = sessions.find((s) => s.date === toDateInput(new Date())) ?? null;
+
   return (
     <div className="max-w-4xl space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-brand-black">Coach Dashboard</h1>
         <p className="text-sm text-zinc-500">Roster, schedule, and attendance</p>
       </div>
+
+      {activeSession && (
+        <SessionCheckInQr sessionId={activeSession.id} title={activeSession.title} />
+      )}
 
       {pendingApplications.length > 0 && (
         <div className="rounded-xl border border-black/10 bg-white p-6">
