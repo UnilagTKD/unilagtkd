@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Field, inputClass } from "@/components/form/fields";
 import { updateTrainingSession, deleteTrainingSession } from "../actions";
+import { TRAINING_SESSION_TITLES, TRAINING_SESSION_LOCATIONS } from "@/lib/constants";
 
 type Session = {
   id: string;
@@ -46,7 +47,13 @@ function EditSessionForm({
   return (
     <form onSubmit={onSubmit} className="space-y-4 rounded-lg bg-zinc-50 p-4">
       <Field label="Title">
-        <input name="title" defaultValue={session.title} required className={inputClass} />
+        <select name="title" defaultValue={session.title} required className={inputClass}>
+          {TRAINING_SESSION_TITLES.map((title) => (
+            <option key={title} value={title}>
+              {title}
+            </option>
+          ))}
+        </select>
       </Field>
       <div className="grid gap-4 sm:grid-cols-3">
         <Field label="Date">
@@ -60,7 +67,18 @@ function EditSessionForm({
         </Field>
       </div>
       <Field label="Location">
-        <input name="location" defaultValue={session.location ?? ""} className={inputClass} />
+        <select
+          name="location"
+          required
+          className={inputClass}
+          defaultValue={session.location ?? TRAINING_SESSION_LOCATIONS[0]}
+        >
+          {TRAINING_SESSION_LOCATIONS.map((location) => (
+            <option key={location} value={location}>
+              {location}
+            </option>
+          ))}
+        </select>
       </Field>
       <Field label="Description">
         <textarea name="description" rows={2} defaultValue={session.description ?? ""} className={inputClass} />

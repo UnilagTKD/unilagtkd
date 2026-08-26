@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field, inputClass } from "@/components/form/fields";
 import { createTrainingSession } from "../actions";
+import { TRAINING_SESSION_TITLES, TRAINING_SESSION_LOCATIONS } from "@/lib/constants";
+import { toDateInput } from "@/lib/dates";
 
 export function CreateSessionForm() {
   const router = useRouter();
@@ -42,11 +44,23 @@ export function CreateSessionForm() {
   return (
     <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-black/10 bg-white p-5">
       <Field label="Title">
-        <input name="title" required className={inputClass} />
+        <select name="title" required className={inputClass} defaultValue={TRAINING_SESSION_TITLES[0]}>
+          {TRAINING_SESSION_TITLES.map((title) => (
+            <option key={title} value={title}>
+              {title}
+            </option>
+          ))}
+        </select>
       </Field>
       <div className="grid gap-4 sm:grid-cols-3">
         <Field label="Date">
-          <input type="date" name="date" required className={inputClass} />
+          <input
+            type="date"
+            name="date"
+            required
+            defaultValue={toDateInput(new Date())}
+            className={inputClass}
+          />
         </Field>
         <Field label="Start Time">
           <input type="time" name="startTime" className={inputClass} />
@@ -56,7 +70,13 @@ export function CreateSessionForm() {
         </Field>
       </div>
       <Field label="Location">
-        <input name="location" className={inputClass} />
+        <select name="location" required className={inputClass} defaultValue={TRAINING_SESSION_LOCATIONS[0]}>
+          {TRAINING_SESSION_LOCATIONS.map((location) => (
+            <option key={location} value={location}>
+              {location}
+            </option>
+          ))}
+        </select>
       </Field>
       <Field label="Description">
         <textarea name="description" rows={2} className={inputClass} />

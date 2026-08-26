@@ -1,7 +1,15 @@
 /**
  * Seeds clearly-fictional demo data so every dashboard has something to show
- * on first login. No real club member data (names, matric numbers, contact
+ * on first login. No real club MEMBER data (names, matric numbers, contact
  * info, medical info) is used anywhere in this file. See plan notes on PII.
+ *
+ * The three Insights posts below are the one exception: their content is
+ * adapted from the club's own real internal memos (grading-day protocol, the
+ * 2026 competition calendar, membership reactivation policy), attributed
+ * generically to the issuing office rather than the individual student
+ * officer who signed the original memo. The Head Coach's name is the one
+ * individual name reused here, matching the leadership section above, which
+ * already treats it as public/institutional.
  *
  * Run with: npm run db:seed
  */
@@ -342,7 +350,7 @@ async function main() {
       date: "2026-08-15",
       startTime: "16:00",
       endTime: "18:00",
-      location: "Demo Sports Complex, UNILAG",
+      location: "Indoor",
       description: "Regular weekly training session (placeholder schedule).",
       createdBy: coachUser.id,
     })
@@ -355,7 +363,7 @@ async function main() {
       date: "2026-08-18",
       startTime: "16:00",
       endTime: "18:00",
-      location: "Demo Sports Complex, UNILAG",
+      location: "Track",
       description: "Sparring drills and conditioning (placeholder schedule).",
       createdBy: coachUser.id,
     })
@@ -503,30 +511,30 @@ async function main() {
   console.log("Seeding insights/blog posts...");
   await db.insert(insights).values([
     {
-      title: "5 Warm-Up Drills Every Beginner Should Know",
-      slug: "5-warm-up-drills-every-beginner-should-know",
-      excerpt: "Placeholder training tip post: dynamic mobility drills coaches use to open every session.",
-      body: "This is placeholder body content for a demo Insights post.\nReplace with real training content via the Secretary's dashboard.\n\nJoint mobility, dynamic stretching, and light footwork drills help prevent injury and prime the body for contact training.",
-      coverImageUrl: placeholderImage("insight-training"),
+      title: "Grading Day: Dress Code & Dojang Protocol",
+      slug: "grading-day-dress-code-and-dojang-protocol",
+      excerpt: "What every member needs to know before stepping onto the mat on grading day.",
+      body: "Ahead of every grading, all club members are expected to:\n\n- Arrive early and register their attendance before the day begins.\n- Be properly dressed: trimmed fingernails and toenails, and a clean, pressed Dobok.\n- Double-check that their name is spelt correctly as it should appear on their grading certificate.\n\nThe Dojang mat is configured before 9am on grading day: a 12x8 grading floor and a 7x6 test area.\n\nTrain hard, stay disciplined, and come prepared.",
+      coverImageUrl: placeholderImage("insight-grading"),
       category: "training",
+      authorName: "G.M. Adebola Otubushin, Head Coach",
+      createdBy: secretaryUser.id,
+    },
+    {
+      title: "2026 Competition Calendar",
+      slug: "2026-competition-calendar",
+      excerpt: "The confirmed and prospective events the squad is preparing for this season.",
+      body: "The team is preparing for a full slate of events across the rest of the season, including the Lagos National Taekwondo Classics (Teslim Balogun Stadium, Surulere), the Korean Ambassadors Cup, the Stella Maris Taekwondo Championship (National Stadium, Surulere), and the NUGA Games at the University of Calabar.\n\nSquad selection for the collegiate events follows the process set out in the Club Manual: an attendance cycle, a fitness and conditioning test, a weight check, in-house trials, and continuous technical assessment during training and sparring. Selection for the non-collegiate events (Lagos Classics, KAC, Stella Maris) is open to any member who shows the commitment and preparedness required.\n\nDetermination, consistency, and hard work in training will decide who makes the squad.",
+      coverImageUrl: placeholderImage("insight-competition"),
+      category: "competition",
       authorName: "Coaching Team",
       createdBy: secretaryUser.id,
     },
     {
-      title: "Recap: Demo Open Taekwondo Championship",
-      slug: "recap-demo-open-taekwondo-championship",
-      excerpt: "Placeholder competition recap post: how the squad performed at a recent tournament.",
-      body: "This is placeholder body content for a demo Insights post.\nReplace with a real competition recap via the Secretary's dashboard.\n\nThe team fielded several athletes across weight classes, returning with a strong medal haul.",
-      coverImageUrl: placeholderImage("insight-competition"),
-      category: "competition",
-      authorName: "Media & Admin Committee",
-      createdBy: secretaryUser.id,
-    },
-    {
-      title: "Welcome to the New Club Portal",
-      slug: "welcome-to-the-new-club-portal",
-      excerpt: "Placeholder club news post announcing the new membership portal.",
-      body: "This is placeholder body content for a demo Insights post.\nReplace with real club news via the Secretary's dashboard.\n\nMembers can now track attendance, dues, and applications online.",
+      title: "Membership Reactivation for the New Season",
+      slug: "membership-reactivation-for-the-new-season",
+      excerpt: "What's required to reactivate your membership as the club resumes full activities.",
+      body: "As the club resumes full activities, every member is asked to reactivate their membership both financially and morally.\n\nFinancially, members are asked for a mandatory contribution of at least ₦3,000 toward the procurement and upkeep of training equipment. Morally, reactivation means regular attendance, discipline and good conduct, and following through on assigned responsibilities.\n\nAll members, whether current students, alumni, or non-students, get access to the membership portal to track attendance and participation. Portal access follows completion of the financial contribution.\n\nYour cooperation keeps the club running and helps us build a stronger, more competitive team.",
       category: "club_news",
       authorName: "Executive Committee",
       createdBy: secretaryUser.id,

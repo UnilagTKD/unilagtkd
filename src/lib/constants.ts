@@ -131,6 +131,22 @@ export const TRAINING_SCHEDULE = {
   time: "4:30 PM – 6:30 PM",
 };
 
+// The normal set of training-session types a coach schedules. Kept as a
+// fixed list (rather than free text) so the schedule and attendance history
+// stay consistent and filterable.
+export const TRAINING_SESSION_TITLES = [
+  "General Training",
+  "Kyorugi (Sparring)",
+  "Poomsae (Forms)",
+  "Ho Shin Sul (Self-Defense)",
+  "Sparring & Conditioning",
+  "Fitness & Conditioning",
+  "Grading Preparation",
+] as const;
+
+// The two venues training actually happens at.
+export const TRAINING_SESSION_LOCATIONS = ["Indoor", "Track"] as const;
+
 export const ATTENDANCE_THRESHOLDS = {
   activeMembership: 70,
   promotionalGrading: 80,
