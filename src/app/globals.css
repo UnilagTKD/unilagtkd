@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --brand-red-light: #e4283f;
+  --brand-red: #c8102e;
+  --brand-red-dark: #7a0919;
+  --brand-blue-light: #2536c9;
+  --brand-blue: #16209e;
+  --brand-blue-dark: #0a1268;
+  --brand-black: #101010;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand-red-light: var(--brand-red-light);
+  --color-brand-red: var(--brand-red);
+  --color-brand-red-dark: var(--brand-red-dark);
+  --color-brand-blue-light: var(--brand-blue-light);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-blue-dark: var(--brand-blue-dark);
+  --color-brand-black: var(--brand-black);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out both;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.6s ease-out both;
+}
+
+.animate-delay-1 {
+  animation-delay: 0.08s;
+}
+.animate-delay-2 {
+  animation-delay: 0.16s;
+}
+.animate-delay-3 {
+  animation-delay: 0.24s;
+}
+.animate-delay-4 {
+  animation-delay: 0.32s;
+}
+.animate-delay-5 {
+  animation-delay: 0.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in {
+    animation: none;
+  }
+}
+
+.auth-card {
+  perspective: 1500px;
+}
+
+.auth-overlay {
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+@keyframes turn-left {
+  0% {
+    transform: translate3d(0, 0, 0) rotateY(0);
+  }
+  20% {
+    transform: translate3d(-10%, 0, 0) rotateY(-2.6deg);
+  }
+  50% {
+    transform: translate3d(-50%, 0, 0) rotateY(-4.5deg);
+  }
+  80% {
+    transform: translate3d(-90%, 0, 0) rotateY(-2.6deg);
+  }
+  100% {
+    transform: translate3d(-100%, 0, 0) rotateY(0);
+  }
+}
+
+.auth-overlay.turn-left {
+  animation: turn-left 860ms linear forwards;
+}
+
+@keyframes turn-right {
+  0% {
+    transform: translate3d(0, 0, 0) rotateY(0);
+  }
+  20% {
+    transform: translate3d(10%, 0, 0) rotateY(2.6deg);
+  }
+  50% {
+    transform: translate3d(50%, 0, 0) rotateY(4.5deg);
+  }
+  80% {
+    transform: translate3d(90%, 0, 0) rotateY(2.6deg);
+  }
+  100% {
+    transform: translate3d(100%, 0, 0) rotateY(0);
+  }
+}
+
+.auth-overlay.turn-right {
+  animation: turn-right 860ms linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-overlay.turn-left {
+    animation: none;
+    transform: translate3d(-100%, 0, 0);
+  }
+  .auth-overlay.turn-right {
+    animation: none;
+    transform: translate3d(100%, 0, 0);
+  }
+}
