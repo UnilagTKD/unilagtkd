@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { deleteGalleryItem } from "../actions";
+import { deleteGalleryItem } from "@/app/dashboard/actions";
 
 export function DeleteGalleryButton({ id }: { id: string }) {
   const router = useRouter();

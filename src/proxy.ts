@@ -5,11 +5,10 @@ import { authConfig } from "@/auth.config";
 const { auth } = NextAuth(authConfig);
 
 const DASHBOARD_PREFIXES: Record<string, string[]> = {
-  "/dashboard/student": ["student", "exco", "admin"],
-  "/dashboard/coach": ["coach", "admin"],
-  "/dashboard/exco": ["exco", "admin"],
-  "/dashboard/admin": ["admin"],
-  "/dashboard/alumni": ["alumni", "admin"],
+  "/dashboard/student": ["student", "exco"],
+  "/dashboard/coach": ["coach"],
+  "/dashboard/exco": ["exco"],
+  "/dashboard/alumni": ["alumni"],
 };
 
 export default auth((req) => {

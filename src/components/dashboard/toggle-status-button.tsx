@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { setUserStatus } from "../actions";
+import { setUserStatus } from "@/app/dashboard/actions";
 
 export function ToggleStatusButton({
   userId,

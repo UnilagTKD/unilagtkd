@@ -36,7 +36,7 @@ export const EXCO_POSITION_DUTIES: Record<ExcoPosition, string> = {
   vice_president:
     "Deputises for the President and runs the sub-committees: assigning members, tracking committee strength, and following the intake pipeline.",
   general_secretary:
-    "Custodian of club records and communication. Maintains the member register and issues announcements.",
+    "Custodian of club records and communication. Maintains the member register, issues announcements, reviews membership applications, manages user roles and password resets, handles contact messages, and publishes achievements, gallery, and insights content.",
   treasurer:
     "Runs the club purse: raises dues charges, confirms payments, and keeps the collection ledger balanced.",
   welfare_officer:
@@ -62,20 +62,15 @@ export type ExcoPermission =
   // Medical readiness and emergency contacts. Deliberately narrow.
   | "welfare:view"
   // Approve or decline requests to be excused from training.
-  | "leave:review";
-
-const ALL_PERMISSIONS: ExcoPermission[] = [
-  "announcements:manage",
-  "dues:view",
-  "dues:manage",
-  "applications:view",
-  "applications:manage",
-  "members:view",
-  "members:records",
-  "members:assign",
-  "welfare:view",
-  "leave:review",
-];
+  | "leave:review"
+  // Change a member's role/exco office, and activate/deactivate accounts.
+  | "members:manage_roles"
+  // Issue or dismiss password reset requests.
+  | "password_resets:manage"
+  // Read and remove messages sent through the public contact form.
+  | "contact_messages:manage"
+  // Publish achievements, gallery photos, and insights/blog posts.
+  | "content:manage";
 
 // Every exco officer can at least see the sub-committee rosters and who else
 // holds office; the rest is granted per portfolio.
@@ -102,12 +97,17 @@ const PERMISSIONS_BY_POSITION: Record<ExcoPosition, ExcoPermission[]> = {
     "members:view",
     "members:assign",
   ],
+  // Took on every duty the admin role used to hold, on top of its own.
   general_secretary: [
     "announcements:manage",
     "applications:view",
     "applications:manage",
     "members:view",
     "members:records",
+    "members:manage_roles",
+    "password_resets:manage",
+    "contact_messages:manage",
+    "content:manage",
   ],
   treasurer: ["dues:view", "dues:manage", "members:view"],
   welfare_officer: ["members:view", "welfare:view", "leave:review"],
@@ -118,15 +118,13 @@ export function isExcoPosition(value: unknown): value is ExcoPosition {
 }
 
 /**
- * Resolves what a user may do inside the exco dashboard. Admins get the full
- * set so their "Exco View" is never partial; an exco member with no office
- * assigned yet falls back to the read-only base permissions.
+ * Resolves what a user may do inside the exco dashboard. An exco member with
+ * no office assigned yet falls back to the read-only base permissions.
  */
 export function excoPermissions(
   role: UserRole,
   position: ExcoPosition | null
 ): ExcoPermission[] {
-  if (role === "admin") return ALL_PERMISSIONS;
   if (role !== "exco") return [];
 
   return position ? PERMISSIONS_BY_POSITION[position] : BASE_PERMISSIONS;

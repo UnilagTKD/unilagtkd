@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { deleteInsight } from "../actions";
+import { deleteInsight } from "@/app/dashboard/actions";
 
 export function DeleteInsightButton({ id }: { id: string }) {
   const router = useRouter();

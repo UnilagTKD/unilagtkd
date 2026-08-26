@@ -9,7 +9,6 @@ const DASHBOARD_HOME: Record<UserRole, string> = {
   alumni: "/dashboard/alumni",
   coach: "/dashboard/coach",
   exco: "/dashboard/exco",
-  admin: "/dashboard/admin",
 };
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {

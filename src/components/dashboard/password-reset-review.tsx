@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { issuePasswordResetLink, dismissPasswordResetRequest } from "../actions";
+import { issuePasswordResetLink, dismissPasswordResetRequest } from "@/app/dashboard/actions";
 
 export type ResetRequest = {
   id: string;

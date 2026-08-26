@@ -139,14 +139,14 @@ async function ensureExcoOfficers(passwordHash: string) {
 }
 
 async function main() {
-  const [existingAdmin] = await db
+  const [existingStudent] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.email, "admin@demo.unilagtkd.example"))
+    .where(eq(users.email, "student@demo.unilagtkd.example"))
     .limit(1);
 
-  if (existingAdmin) {
-    console.log("Demo data already present (admin@demo.unilagtkd.example exists), skipping seed.");
+  if (existingStudent) {
+    console.log("Demo data already present (student@demo.unilagtkd.example exists), skipping seed.");
     console.log("Checking the per-office exco demo accounts...");
     await ensureExcoOfficers(await hash(DEMO_PASSWORD, 10));
     return;
@@ -277,15 +277,7 @@ async function main() {
   const officers = await ensureExcoOfficers(passwordHash);
   const excoUser = officers.president;
   const welfareUser = officers.welfare_officer;
-
-  const [adminUser] = await db
-    .insert(users)
-    .values({
-      email: "admin@demo.unilagtkd.example",
-      passwordHash,
-      role: "admin",
-    })
-    .returning();
+  const secretaryUser = officers.general_secretary;
 
   const [alumniUser] = await db
     .insert(users)
@@ -330,12 +322,6 @@ async function main() {
     fullName: "Coach Sample Instructor",
     membershipCategory: "non_student",
     beltGrade: "Black Belt 3rd Dan",
-  });
-
-  await db.insert(memberProfiles).values({
-    userId: adminUser.id,
-    fullName: "Admin Demo User",
-    membershipCategory: "non_student",
   });
 
   await db.insert(memberProfiles).values({
@@ -427,7 +413,7 @@ async function main() {
       competitionName: "Demo Open Taekwondo Championship",
       competitionDate: "2026-02-14",
       venue: "Demo Venue, Lagos",
-      createdBy: adminUser.id,
+      createdBy: secretaryUser.id,
     },
     {
       athleteName: "Demo Athlete Two",
@@ -439,7 +425,7 @@ async function main() {
       competitionName: "Demo Open Taekwondo Championship",
       competitionDate: "2026-02-14",
       venue: "Demo Venue, Lagos",
-      createdBy: adminUser.id,
+      createdBy: secretaryUser.id,
     },
     {
       athleteName: "Demo Athlete Three",
@@ -451,16 +437,16 @@ async function main() {
       competitionName: "Demo Invitational Cup",
       competitionDate: "2026-04-11",
       venue: "Demo Stadium, Lagos",
-      createdBy: adminUser.id,
+      createdBy: secretaryUser.id,
     },
   ]);
 
   console.log("Seeding gallery items (placeholder images)...");
   await db.insert(galleryItems).values([
-    { imageUrl: placeholderImage("training-1"), caption: "Weekly training session (placeholder)", category: "training", uploadedBy: adminUser.id },
-    { imageUrl: placeholderImage("training-2"), caption: "Sparring drills (placeholder)", category: "training", uploadedBy: adminUser.id },
-    { imageUrl: placeholderImage("demo-1"), caption: "Public demonstration (placeholder)", category: "demo", uploadedBy: adminUser.id },
-    { imageUrl: placeholderImage("tournament-1"), caption: "Tournament day (placeholder)", category: "tournament", uploadedBy: adminUser.id },
+    { imageUrl: placeholderImage("training-1"), caption: "Weekly training session (placeholder)", category: "training", uploadedBy: secretaryUser.id },
+    { imageUrl: placeholderImage("training-2"), caption: "Sparring drills (placeholder)", category: "training", uploadedBy: secretaryUser.id },
+    { imageUrl: placeholderImage("demo-1"), caption: "Public demonstration (placeholder)", category: "demo", uploadedBy: secretaryUser.id },
+    { imageUrl: placeholderImage("tournament-1"), caption: "Tournament day (placeholder)", category: "tournament", uploadedBy: secretaryUser.id },
   ]);
 
   console.log("Seeding announcements...");
@@ -520,27 +506,30 @@ async function main() {
       title: "5 Warm-Up Drills Every Beginner Should Know",
       slug: "5-warm-up-drills-every-beginner-should-know",
       excerpt: "Placeholder training tip post: dynamic mobility drills coaches use to open every session.",
-      body: "This is placeholder body content for a demo Insights post.\nReplace with real training content via the admin dashboard.\n\nJoint mobility, dynamic stretching, and light footwork drills help prevent injury and prime the body for contact training.",
+      body: "This is placeholder body content for a demo Insights post.\nReplace with real training content via the Secretary's dashboard.\n\nJoint mobility, dynamic stretching, and light footwork drills help prevent injury and prime the body for contact training.",
       coverImageUrl: placeholderImage("insight-training"),
       category: "training",
       authorName: "Coaching Team",
+      createdBy: secretaryUser.id,
     },
     {
       title: "Recap: Demo Open Taekwondo Championship",
       slug: "recap-demo-open-taekwondo-championship",
       excerpt: "Placeholder competition recap post: how the squad performed at a recent tournament.",
-      body: "This is placeholder body content for a demo Insights post.\nReplace with a real competition recap via the admin dashboard.\n\nThe team fielded several athletes across weight classes, returning with a strong medal haul.",
+      body: "This is placeholder body content for a demo Insights post.\nReplace with a real competition recap via the Secretary's dashboard.\n\nThe team fielded several athletes across weight classes, returning with a strong medal haul.",
       coverImageUrl: placeholderImage("insight-competition"),
       category: "competition",
       authorName: "Media & Admin Committee",
+      createdBy: secretaryUser.id,
     },
     {
       title: "Welcome to the New Club Portal",
       slug: "welcome-to-the-new-club-portal",
       excerpt: "Placeholder club news post announcing the new membership portal.",
-      body: "This is placeholder body content for a demo Insights post.\nReplace with real club news via the admin dashboard.\n\nMembers can now track attendance, dues, and applications online.",
+      body: "This is placeholder body content for a demo Insights post.\nReplace with real club news via the Secretary's dashboard.\n\nMembers can now track attendance, dues, and applications online.",
       category: "club_news",
       authorName: "Executive Committee",
+      createdBy: secretaryUser.id,
     },
   ]);
 
@@ -552,7 +541,6 @@ async function main() {
   console.log("  secretary@demo.unilagtkd.example / " + DEMO_PASSWORD + "  (general secretary)");
   console.log("  treasurer@demo.unilagtkd.example / " + DEMO_PASSWORD + "  (treasurer)");
   console.log("  welfare@demo.unilagtkd.example / " + DEMO_PASSWORD + "  (welfare officer)");
-  console.log("  admin@demo.unilagtkd.example   / " + DEMO_PASSWORD);
   console.log("  alumni@demo.unilagtkd.example  / " + DEMO_PASSWORD);
 }
 

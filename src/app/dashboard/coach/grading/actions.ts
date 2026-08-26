@@ -38,7 +38,7 @@ import { getGradingWindow, loadEligibilityContext } from "@/lib/grading-data";
 // `requireRole` that redirects, which is right for pages and wrong here.
 async function requireCoach() {
   const session = await auth();
-  const allowed: UserRole[] = ["coach", "admin"];
+  const allowed: UserRole[] = ["coach"];
   if (!session?.user || !allowed.includes(session.user.role)) {
     throw new Error("Not authorized");
   }
@@ -648,7 +648,7 @@ export async function publishGrading(gradingId: string) {
 
     // Guard against a stale record demoting someone: if their belt has already
     // moved to or past the target (a second grading published out of order, or
-    // an admin correction), leave it alone.
+    // a manual correction), leave it alone.
     if (resolveRank(profile.beltGrade).rank.order >= target.order) continue;
 
     await db

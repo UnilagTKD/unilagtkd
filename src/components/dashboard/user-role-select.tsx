@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateUserRole } from "../actions";
+import { updateUserRole } from "@/app/dashboard/actions";
 import type { UserRole } from "@/types/next-auth";
 
 export function UserRoleSelect({
@@ -31,7 +31,6 @@ export function UserRoleSelect({
       <option value="alumni">alumni</option>
       <option value="coach">coach</option>
       <option value="exco">exco</option>
-      <option value="admin">admin</option>
     </select>
   );
 }

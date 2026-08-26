@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-export const roleEnum = pgEnum("role", ["student", "coach", "exco", "admin", "alumni"]);
+export const roleEnum = pgEnum("role", ["student", "coach", "exco", "alumni"]);
 export const userStatusEnum = pgEnum("user_status", ["active", "inactive"]);
 export const applicationStatusEnum = pgEnum("application_status", [
   "pending",
@@ -109,8 +109,9 @@ export const users = pgTable("users", {
   excoPosition: excoPositionEnum("exco_position"),
   status: userStatusEnum("status").notNull().default("active"),
   // Password reset. The club has no outbound email, so a reset is mediated by
-  // an admin: the member raises a request (resetRequestedAt), an admin verifies
-  // who they are and issues a link (resetToken), and hands it over directly.
+  // the General Secretary: the member raises a request (resetRequestedAt), the
+  // Secretary verifies who they are and issues a link (resetToken), and hands
+  // it over directly.
   resetRequestedAt: timestamp("reset_requested_at", { withTimezone: true }),
   resetToken: varchar("reset_token", { length: 255 }).unique(),
   resetTokenExpires: timestamp("reset_token_expires", { withTimezone: true }),

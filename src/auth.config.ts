@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
+import type { UserRole } from "@/types/next-auth";
 
 // Edge-safe config (no database imports) used by middleware.
 // The Credentials provider (which needs `db`) is added in `auth.ts`,
@@ -19,7 +20,7 @@ export const authConfig = {
     session: ({ session, token }) => {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.role = token.role as "student" | "coach" | "exco" | "admin";
+        session.user.role = token.role as UserRole;
       }
       return session;
     },

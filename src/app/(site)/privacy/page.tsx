@@ -62,7 +62,7 @@ export default function PrivacyPolicyPage() {
           <p>Collected data is used to:</p>
           <ul className="list-disc pl-6">
             <li>Process and review membership applications;</li>
-            <li>Provide and secure access to student, coach, exco, and admin dashboards;</li>
+            <li>Provide and secure access to student, coach, and exco dashboards;</li>
             <li>Track training attendance, dues, and membership status;</li>
             <li>Respond to medical emergencies during club activities;</li>
             <li>Publish achievement and competition results on this website;</li>
@@ -76,9 +76,9 @@ export default function PrivacyPolicyPage() {
             We implement technical and organizational measures to protect
             your data, including: passwords stored only as salted
             cryptographic hashes (never in plain text); medical and
-            emergency-contact information restricted to coaches, the
-            welfare sub-committee, and admins; and role-based access
-            controls that limit each dashboard to the data it needs.
+            emergency-contact information restricted to coaches and the
+            Welfare Officer; and role-based access controls that limit
+            each dashboard to the data it needs.
           </p>
         </section>
 

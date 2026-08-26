@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field, inputClass } from "@/components/form/fields";
-import { createAchievement } from "../actions";
+import { createAchievement } from "@/app/dashboard/actions";
 
 export function AchievementForm() {
   const router = useRouter();

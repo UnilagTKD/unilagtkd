@@ -231,8 +231,8 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
           <div className="space-y-4">
             <h2 className="font-semibold text-brand-black">2. Medical History &amp; Safety Disclosures</h2>
             <p className="text-xs text-zinc-500">
-              This information is confidential and only visible to coaches,
-              the welfare sub-committee, and admins.
+              This information is confidential and only visible to coaches
+              and the Welfare Officer.
             </p>
 
             <div className="grid gap-4 sm:grid-cols-2">

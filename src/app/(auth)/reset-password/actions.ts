@@ -38,7 +38,7 @@ export async function completePasswordReset(
   const passwordHash = await hash(password, 10);
 
   // Clear the token and the pending request together, so the link is single-use
-  // and the request drops off the admin's queue.
+  // and the request drops off the Secretary's queue.
   await db
     .update(users)
     .set({

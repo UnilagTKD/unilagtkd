@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { markMessageRead, deleteContactMessage } from "../actions";
+import { markMessageRead, deleteContactMessage } from "@/app/dashboard/actions";
 
 type Message = {
   id: string;

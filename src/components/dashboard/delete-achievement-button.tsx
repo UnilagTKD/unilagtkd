@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { deleteAchievement } from "../actions";
+import { deleteAchievement } from "@/app/dashboard/actions";
 
 export function DeleteAchievementButton({ id }: { id: string }) {
   const router = useRouter();

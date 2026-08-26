@@ -14,8 +14,12 @@ import {
   dues,
   applications,
   leaveRequests,
+  achievements,
+  galleryItems,
+  insights,
+  contactMessages,
 } from "@/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, isNotNull } from "drizzle-orm";
 import { AnnouncementForm } from "./announcement-form";
 import { DeleteAnnouncementButton } from "./delete-announcement-button";
 import { DuesChargeForm } from "./dues-charge-form";
@@ -28,6 +32,17 @@ import { WelfarePanel } from "./welfare-panel";
 import { ExcoDirectory } from "./exco-directory";
 import { SubCommitteeAssign } from "./sub-committee-assign";
 import { ApplicationReview } from "@/components/dashboard/application-review";
+import { UserRoleSelect } from "@/components/dashboard/user-role-select";
+import { ExcoPositionSelect } from "@/components/dashboard/exco-position-select";
+import { ToggleStatusButton } from "@/components/dashboard/toggle-status-button";
+import { PasswordResetReview } from "@/components/dashboard/password-reset-review";
+import { ContactMessageRow } from "@/components/dashboard/contact-message-row";
+import { AchievementForm } from "@/components/dashboard/achievement-form";
+import { DeleteAchievementButton } from "@/components/dashboard/delete-achievement-button";
+import { GalleryForm } from "@/components/dashboard/gallery-form";
+import { DeleteGalleryButton } from "@/components/dashboard/delete-gallery-button";
+import { InsightForm } from "@/components/dashboard/insight-form";
+import { DeleteInsightButton } from "@/components/dashboard/delete-insight-button";
 
 /**
  * The dashboard an exco post adds to a member's account. Their member
@@ -37,7 +52,7 @@ import { ApplicationReview } from "@/components/dashboard/application-review";
 export async function ExcoOfficeSection() {
   const { user, position, can } = await getExcoContext();
 
-  if (user.role !== "exco" && user.role !== "admin") return null;
+  if (user.role !== "exco") return null;
 
   const canManageAnnouncements = can("announcements:manage");
   const canViewDues = can("dues:view");
@@ -48,6 +63,10 @@ export async function ExcoOfficeSection() {
   const canAssignMembers = can("members:assign");
   const canViewWelfare = can("welfare:view");
   const canReviewLeave = can("leave:review");
+  const canManageRoles = can("members:manage_roles");
+  const canManagePasswordResets = can("password_resets:manage");
+  const canManageContactMessages = can("contact_messages:manage");
+  const canManageContent = can("content:manage");
 
   const [
     allAnnouncements,
@@ -59,6 +78,12 @@ export async function ExcoOfficeSection() {
     welfareRows,
     leaveRows,
     excoMembers,
+    allUsersForRoles,
+    resetRequests,
+    allContactMessages,
+    allAchievements,
+    allGalleryItems,
+    allInsights,
   ] = await Promise.all([
     db.select().from(announcements).orderBy(desc(announcements.createdAt)),
     db
@@ -160,26 +185,53 @@ export async function ExcoOfficeSection() {
       .from(users)
       .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
       .where(eq(users.role, "exco")),
+    canManageRoles
+      ? db
+          .select({
+            id: users.id,
+            email: users.email,
+            role: users.role,
+            excoPosition: users.excoPosition,
+            status: users.status,
+            fullName: memberProfiles.fullName,
+          })
+          .from(users)
+          .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
+          .orderBy(desc(users.createdAt))
+      : [],
+    canManagePasswordResets
+      ? db
+          .select({
+            id: users.id,
+            email: users.email,
+            fullName: memberProfiles.fullName,
+            resetRequestedAt: users.resetRequestedAt,
+          })
+          .from(users)
+          .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
+          .where(isNotNull(users.resetRequestedAt))
+          .orderBy(desc(users.resetRequestedAt))
+      : [],
+    canManageContactMessages
+      ? db.select().from(contactMessages).orderBy(desc(contactMessages.createdAt))
+      : [],
+    canManageContent
+      ? db.select().from(achievements).orderBy(desc(achievements.competitionDate))
+      : [],
+    canManageContent ? db.select().from(galleryItems).orderBy(desc(galleryItems.createdAt)) : [],
+    canManageContent ? db.select().from(insights).orderBy(desc(insights.createdAt)) : [],
   ]);
+
+  const unreadMessageCount = allContactMessages.filter((m) => !m.read).length;
 
   const pendingApplications = allApplications.filter((a) => a.status === "pending");
   const outstandingDues = allDues.filter((d) => !d.paid);
   const pendingClaims = allDues.filter((d) => d.paymentClaimed && !d.paid);
   const pendingLeave = leaveRows.filter((r) => r.status === "pending");
 
-  const heading =
-    user.role === "admin"
-      ? "Exco Dashboard"
-      : position
-        ? `${EXCO_POSITION_SHORT_LABELS[position]} Dashboard`
-        : "Exco Dashboard";
+  const heading = position ? `${EXCO_POSITION_SHORT_LABELS[position]} Dashboard` : "Exco Dashboard";
 
-  const duties =
-    user.role === "admin"
-      ? "Every exco portfolio, so nothing is hidden from the admin view."
-      : position
-        ? EXCO_POSITION_DUTIES[position]
-        : null;
+  const duties = position ? EXCO_POSITION_DUTIES[position] : null;
 
   return (
     <section className="space-y-8">
@@ -191,10 +243,10 @@ export async function ExcoOfficeSection() {
         {duties && <p className="mt-1 max-w-2xl text-sm text-zinc-500">{duties}</p>}
       </div>
 
-      {user.role === "exco" && !position && (
+      {!position && (
         <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-800">
           You have not been assigned an executive office yet, so this dashboard is
-          read-only. Ask an admin to set your office from the admin dashboard.
+          read-only. Ask the General Secretary to set your office.
         </div>
       )}
 
@@ -427,8 +479,7 @@ export async function ExcoOfficeSection() {
             </p>
           ) : (
             <p className="mt-1 text-xs text-zinc-500">
-              Read-only. Applications are reviewed by the General Secretary, coaches, or an
-              admin.
+              Read-only. Applications are reviewed by the General Secretary or coaches.
             </p>
           )}
           {canManageApplications ? (
@@ -469,6 +520,153 @@ export async function ExcoOfficeSection() {
         }))}
         currentUserId={user.id}
       />
+
+      {canManagePasswordResets && resetRequests.length > 0 && (
+        <div className="rounded-xl border border-brand-red/30 bg-white p-6">
+          <h2 className="font-semibold text-brand-black">
+            Password Reset Requests ({resetRequests.length})
+          </h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            The site cannot email reset links, so you issue them here and pass them to
+            the member directly.
+          </p>
+          <div className="mt-4 space-y-4">
+            {resetRequests.map((r) => (
+              <PasswordResetReview key={r.id} request={r} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canManageRoles && (
+        <div className="rounded-xl border border-black/10 bg-white p-6">
+          <h2 className="font-semibold text-brand-black">
+            Users &amp; Roles ({allUsersForRoles.length})
+          </h2>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-zinc-500">
+                <tr>
+                  <th className="py-2">Name</th>
+                  <th className="py-2">Email</th>
+                  <th className="py-2">Role</th>
+                  <th className="py-2">Exco Office</th>
+                  <th className="py-2">Status</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-black/5">
+                {allUsersForRoles.map((u) => (
+                  <tr key={u.id}>
+                    <td className="py-2">{u.fullName ?? "-"}</td>
+                    <td className="py-2 text-zinc-600">{u.email}</td>
+                    <td className="py-2">
+                      <UserRoleSelect userId={u.id} currentRole={u.role} />
+                    </td>
+                    <td className="py-2">
+                      <ExcoPositionSelect
+                        userId={u.id}
+                        currentRole={u.role}
+                        currentPosition={u.excoPosition}
+                      />
+                    </td>
+                    <td className="py-2">
+                      <span
+                        className={
+                          u.status === "active"
+                            ? "rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700"
+                            : "rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600"
+                        }
+                      >
+                        {u.status}
+                      </span>
+                    </td>
+                    <td className="py-2">
+                      <ToggleStatusButton userId={u.id} currentStatus={u.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {canManageContent && (
+        <div className="rounded-xl border border-black/10 bg-white p-6">
+          <h2 className="font-semibold text-brand-black">Achievements</h2>
+          <div className="mt-4">
+            <AchievementForm />
+          </div>
+          <ul className="mt-6 divide-y divide-black/5 text-sm">
+            {allAchievements.map((a) => (
+              <li key={a.id} className="flex items-center justify-between py-2">
+                <span>
+                  {a.athleteName}, {a.medal}, {a.competitionName} ({a.competitionDate})
+                </span>
+                <DeleteAchievementButton id={a.id} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {canManageContent && (
+        <div className="rounded-xl border border-black/10 bg-white p-6">
+          <h2 className="font-semibold text-brand-black">Gallery</h2>
+          <div className="mt-4">
+            <GalleryForm />
+          </div>
+          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {allGalleryItems.map((g) => (
+              <div key={g.id} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={g.imageUrl} alt={g.caption ?? ""} className="aspect-square w-full rounded-lg object-cover" />
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-xs text-zinc-500">{g.category}</span>
+                  <DeleteGalleryButton id={g.id} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canManageContent && (
+        <div className="rounded-xl border border-black/10 bg-white p-6">
+          <h2 className="font-semibold text-brand-black">Insights / Blog</h2>
+          <div className="mt-4">
+            <InsightForm />
+          </div>
+          <ul className="mt-6 divide-y divide-black/5 text-sm">
+            {allInsights.map((post) => (
+              <li key={post.id} className="flex items-center justify-between py-2">
+                <span>
+                  {post.title}, <span className="text-zinc-500">{post.category}</span>
+                </span>
+                <DeleteInsightButton id={post.id} />
+              </li>
+            ))}
+            {allInsights.length === 0 && <li className="py-2 text-zinc-500">No posts yet.</li>}
+          </ul>
+        </div>
+      )}
+
+      {canManageContactMessages && (
+        <div className="rounded-xl border border-black/10 bg-white p-6">
+          <h2 className="font-semibold text-brand-black">
+            Contact Messages {unreadMessageCount > 0 && `(${unreadMessageCount} unread)`}
+          </h2>
+          <ul className="mt-4 divide-y divide-black/5">
+            {allContactMessages.map((m) => (
+              <ContactMessageRow key={m.id} message={m} />
+            ))}
+            {allContactMessages.length === 0 && (
+              <li className="py-2 text-sm text-zinc-500">No messages yet.</li>
+            )}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

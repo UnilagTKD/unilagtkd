@@ -46,11 +46,11 @@ async function requireRole(allowed: UserRole[]) {
   return session.user;
 }
 
-/** Admin, any coach, or the exco officer (Secretary) holding applications:manage. */
+/** Any coach, or the exco officer (Secretary) holding applications:manage. */
 async function requireApplicationReviewer() {
   const session = await auth();
   if (!session?.user) throw new Error("Not authorized");
-  if (session.user.role === "admin" || session.user.role === "coach") {
+  if (session.user.role === "coach") {
     return session.user;
   }
   if (session.user.role === "exco") {
@@ -66,7 +66,7 @@ async function requireApplicationReviewer() {
   throw new Error("Not authorized");
 }
 
-// ---------- Applications (admin, coaches, exco Secretary) ----------
+// ---------- Applications (coaches, exco Secretary) ----------
 
 export async function reviewApplication(
   applicationId: string,
@@ -96,7 +96,6 @@ export async function reviewApplication(
       })
       .where(eq(applications.id, applicationId));
 
-    revalidatePath("/dashboard/admin");
     revalidatePath("/dashboard/coach");
     revalidatePath("/dashboard/exco");
     return { ok: true as const, setupLink: null };
@@ -157,42 +156,39 @@ export async function reviewApplication(
     })
     .where(eq(applications.id, applicationId));
 
-  revalidatePath("/dashboard/admin");
   revalidatePath("/dashboard/coach");
   revalidatePath("/dashboard/exco");
   return { ok: true as const, setupLink: `/setup-account?token=${setupToken}` };
 }
 
-// ---------- User / role management (admin) ----------
+// ---------- User / role management (exco: General Secretary) ----------
 
 export async function updateUserRole(userId: string, role: UserRole) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("members:manage_roles");
   // An executive office only means something for exco members, so drop it
   // whenever someone is moved off the exco role.
   await db
     .update(users)
     .set({ role, ...(role === "exco" ? {} : { excoPosition: null }) })
     .where(eq(users.id, userId));
-  revalidatePath("/dashboard/admin");
   revalidatePath("/dashboard/exco");
 }
 
 export async function updateExcoPosition(userId: string, position: ExcoPosition | null) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("members:manage_roles");
 
   if (position !== null && !isExcoPosition(position)) {
     throw new Error("Unknown exco position");
   }
 
   await db.update(users).set({ excoPosition: position }).where(eq(users.id, userId));
-  revalidatePath("/dashboard/admin");
   revalidatePath("/dashboard/exco");
 }
 
 export async function setUserStatus(userId: string, status: "active" | "inactive") {
-  await requireRole(["admin"]);
+  await requireExcoPermission("members:manage_roles");
   await db.update(users).set({ status }).where(eq(users.id, userId));
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
 }
 
 // ---------- Training sessions & attendance (coach) ----------
@@ -205,7 +201,7 @@ export async function createTrainingSession(data: {
   location?: string;
   description?: string;
 }) {
-  const user = await requireRole(["coach", "admin"]);
+  const user = await requireRole(["coach"]);
   await db.insert(trainingSessions).values({
     title: data.title,
     date: data.date,
@@ -229,7 +225,7 @@ export async function updateTrainingSession(
     description?: string;
   }
 ) {
-  await requireRole(["coach", "admin"]);
+  await requireRole(["coach"]);
   await db
     .update(trainingSessions)
     .set({
@@ -245,7 +241,7 @@ export async function updateTrainingSession(
 }
 
 export async function deleteTrainingSession(sessionId: string) {
-  await requireRole(["coach", "admin"]);
+  await requireRole(["coach"]);
   await db.delete(trainingSessions).where(eq(trainingSessions.id, sessionId));
   revalidatePath("/dashboard/coach");
   revalidatePath("/dashboard/coach/attendance");
@@ -255,7 +251,7 @@ export async function markAttendance(
   sessionId: string,
   entries: { userId: string; present: boolean }[]
 ) {
-  const user = await requireRole(["coach", "admin"]);
+  const user = await requireRole(["coach"]);
 
   // A member who joined after this session, or who was on approved leave for
   // it, is not on its register. The marking page already leaves them out, but
@@ -298,7 +294,7 @@ export async function markAttendance(
   return { marked: entries.length - skipped, skipped };
 }
 
-// ---------- Announcements (exco: president / VP / general secretary, admin) ----------
+// ---------- Announcements (exco: president / VP / general secretary) ----------
 
 export async function createAnnouncement(data: {
   title: string;
@@ -313,17 +309,15 @@ export async function createAnnouncement(data: {
     createdBy: user.id,
   });
   revalidatePath("/dashboard/exco");
-  revalidatePath("/dashboard/admin");
 }
 
 export async function deleteAnnouncement(id: string) {
   await requireExcoPermission("announcements:manage");
   await db.delete(announcements).where(eq(announcements.id, id));
   revalidatePath("/dashboard/exco");
-  revalidatePath("/dashboard/admin");
 }
 
-// ---------- Dues (exco: president / treasurer, admin) ----------
+// ---------- Dues (exco: president / treasurer) ----------
 
 export async function createDuesCharge(data: {
   userId: string;
@@ -338,7 +332,6 @@ export async function createDuesCharge(data: {
     paid: false,
   });
   revalidatePath("/dashboard/exco");
-  revalidatePath("/dashboard/admin");
 }
 
 export async function markDuesPaid(duesId: string, receiptNo?: string) {
@@ -348,7 +341,6 @@ export async function markDuesPaid(duesId: string, receiptNo?: string) {
     .set({ paid: true, paidAt: new Date(), receiptNo: receiptNo || null, recordedBy: user.id })
     .where(eq(dues.id, duesId));
   revalidatePath("/dashboard/exco");
-  revalidatePath("/dashboard/admin");
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");
 }
@@ -388,10 +380,9 @@ export async function claimDuesPayment(duesId: string, reference?: string) {
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");
   revalidatePath("/dashboard/exco");
-  revalidatePath("/dashboard/admin");
 }
 
-// ---------- Achievements (admin) ----------
+// ---------- Achievements (exco: General Secretary) ----------
 
 export async function createAchievement(data: {
   athleteName: string;
@@ -404,47 +395,47 @@ export async function createAchievement(data: {
   competitionDate: string;
   venue?: string;
 }) {
-  const user = await requireRole(["admin"]);
+  const user = await requireExcoPermission("content:manage");
   await db.insert(achievements).values({ ...data, createdBy: user.id });
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
   revalidatePath("/achievements");
   revalidatePath("/");
 }
 
 export async function deleteAchievement(id: string) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("content:manage");
   await db.delete(achievements).where(eq(achievements.id, id));
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
   revalidatePath("/achievements");
 }
 
-// ---------- Gallery (admin) ----------
+// ---------- Gallery (exco: General Secretary) ----------
 
 export async function createGalleryItem(data: {
   imageUrl: string;
   caption?: string;
   category: "training" | "demo" | "tournament";
 }) {
-  const user = await requireRole(["admin"]);
+  const user = await requireExcoPermission("content:manage");
   await db.insert(galleryItems).values({
     imageUrl: data.imageUrl,
     caption: data.caption || null,
     category: data.category,
     uploadedBy: user.id,
   });
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
   revalidatePath("/gallery");
   revalidatePath("/");
 }
 
 export async function deleteGalleryItem(id: string) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("content:manage");
   await db.delete(galleryItems).where(eq(galleryItems.id, id));
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
   revalidatePath("/gallery");
 }
 
-// ---------- Insights / Blog (admin) ----------
+// ---------- Insights / Blog (exco: General Secretary) ----------
 
 export async function createInsight(data: {
   title: string;
@@ -454,7 +445,7 @@ export async function createInsight(data: {
   category: "training" | "competition" | "club_news" | "wellness";
   authorName?: string;
 }) {
-  const user = await requireRole(["admin"]);
+  const user = await requireExcoPermission("content:manage");
 
   const baseSlug = slugify(data.title) || "post";
   let slug = baseSlug;
@@ -478,32 +469,32 @@ export async function createInsight(data: {
     createdBy: user.id,
   });
 
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
   revalidatePath("/insights");
 }
 
 export async function deleteInsight(id: string) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("content:manage");
   await db.delete(insights).where(eq(insights.id, id));
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
   revalidatePath("/insights");
 }
 
-// ---------- Contact messages (admin) ----------
+// ---------- Contact messages (exco: General Secretary) ----------
 
 export async function markMessageRead(id: string) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("contact_messages:manage");
   await db.update(contactMessages).set({ read: true }).where(eq(contactMessages.id, id));
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
 }
 
 export async function deleteContactMessage(id: string) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("contact_messages:manage");
   await db.delete(contactMessages).where(eq(contactMessages.id, id));
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
 }
 
-// ---------- Sub-committees (exco: president / VP, admin) ----------
+// ---------- Sub-committees (exco: president / VP) ----------
 
 export async function assignSubCommittee(userId: string, subCommitteeId: string | null) {
   await requireExcoPermission("members:assign");
@@ -524,7 +515,6 @@ export async function assignSubCommittee(userId: string, subCommitteeId: string 
     .where(eq(memberProfiles.userId, userId));
 
   revalidatePath("/dashboard/exco");
-  revalidatePath("/dashboard/admin");
 }
 
 // ---------- Leave requests ----------
@@ -621,17 +611,18 @@ export async function reviewLeaveRequest(
   revalidatePath("/dashboard/leave");
 }
 
-// ---------- Password resets (admin) ----------
+// ---------- Password resets (exco: General Secretary) ----------
 
 /**
  * Issues a password reset link for a member who has requested one.
  *
- * The club has no outbound email, so the admin hands this link over directly
- * after confirming the person is who they say they are. Verify identity BEFORE
- * generating - anyone holding this link can take over the account.
+ * The club has no outbound email, so the Secretary hands this link over
+ * directly after confirming the person is who they say they are. Verify
+ * identity BEFORE generating - anyone holding this link can take over the
+ * account.
  */
 export async function issuePasswordResetLink(userId: string) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("password_resets:manage");
 
   const [user] = await db
     .select({ id: users.id, resetRequestedAt: users.resetRequestedAt })
@@ -653,21 +644,21 @@ export async function issuePasswordResetLink(userId: string) {
     .set({ resetToken, resetTokenExpires: resetTokenExpiry() })
     .where(eq(users.id, userId));
 
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
 
   return { ok: true as const, resetLink: `/reset-password?token=${resetToken}` };
 }
 
 /** Dismisses a reset request without issuing a link (e.g. identity not confirmed). */
 export async function dismissPasswordResetRequest(userId: string) {
-  await requireRole(["admin"]);
+  await requireExcoPermission("password_resets:manage");
 
   await db
     .update(users)
     .set({ resetRequestedAt: null, resetToken: null, resetTokenExpires: null })
     .where(eq(users.id, userId));
 
-  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/exco");
 
   return { ok: true as const };
 }
@@ -742,7 +733,6 @@ export async function issueReceipt(duesId: string, receiptNo?: string) {
     .where(eq(dues.id, duesId));
 
   revalidatePath("/dashboard/exco");
-  revalidatePath("/dashboard/admin");
   revalidatePath("/dashboard/payments");
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");

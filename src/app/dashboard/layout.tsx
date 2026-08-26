@@ -54,13 +54,6 @@ const NAV_BY_ROLE: Record<UserRole, { href: string; label: string }[]> = {
     { href: "/dashboard/leave", label: "Leave" },
     { href: "/dashboard/settings", label: "Settings" },
   ],
-  admin: [
-    { href: "/dashboard/admin", label: "Admin Dashboard" },
-    { href: "/dashboard/exco", label: "Exco View" },
-    { href: "/dashboard/coach", label: "Coach View" },
-    { href: "/dashboard/coach/grading", label: "Grading" },
-    { href: "/dashboard/settings", label: "Settings" },
-  ],
 };
 
 export default async function DashboardLayout({

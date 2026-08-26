@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateExcoPosition } from "../actions";
+import { updateExcoPosition } from "@/app/dashboard/actions";
 import { EXCO_POSITIONS, EXCO_POSITION_LABELS, type ExcoPosition } from "@/lib/exco";
 import type { UserRole } from "@/types/next-auth";
 
