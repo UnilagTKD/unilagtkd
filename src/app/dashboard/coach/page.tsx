@@ -15,42 +15,57 @@ import { SessionsList } from "./sessions-list";
 import { ApplicationReview } from "@/components/dashboard/application-review";
 import { MemberRegister } from "@/components/dashboard/member-register";
 import { SessionCheckInQr } from "@/components/dashboard/session-checkin-qr";
+import { UsersRolesTable } from "@/components/dashboard/users-roles-table";
 import { toDateInput } from "@/lib/dates";
 
 export default async function CoachDashboardPage() {
-  await requireRole(["coach"]);
+  const coach = await requireRole(["coach"]);
 
-  const [roster, sessions, coachAnnouncements, pendingApplications] = await Promise.all([
-    db
-      .select({
-        id: users.id,
-        email: users.email,
-        fullName: memberProfiles.fullName,
-        phone: memberProfiles.phone,
-        membershipCategory: memberProfiles.membershipCategory,
-        department: memberProfiles.department,
-        beltGrade: memberProfiles.beltGrade,
-        levelYear: memberProfiles.levelYear,
-        subCommitteeName: subCommittees.name,
-      })
-      .from(users)
-      .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
-      .leftJoin(subCommittees, eq(subCommittees.id, memberProfiles.assignedSubCommitteeId))
-      .where(inArray(users.role, [...MEMBER_ROLES])),
-    db.select().from(trainingSessions).orderBy(desc(trainingSessions.date)),
-    db
-      .select()
-      .from(announcements)
-      .where(or(eq(announcements.audience, "all"), eq(announcements.audience, "coaches")))
-      .orderBy(desc(announcements.createdAt)),
-    db
-      .select()
-      .from(applications)
-      .where(eq(applications.status, "pending"))
-      .orderBy(desc(applications.createdAt)),
-  ]);
+  const [roster, sessions, coachAnnouncements, pendingApplications, allUsersForRoles] =
+    await Promise.all([
+      db
+        .select({
+          id: users.id,
+          email: users.email,
+          fullName: memberProfiles.fullName,
+          phone: memberProfiles.phone,
+          membershipCategory: memberProfiles.membershipCategory,
+          department: memberProfiles.department,
+          beltGrade: memberProfiles.beltGrade,
+          levelYear: memberProfiles.levelYear,
+          subCommitteeName: subCommittees.name,
+        })
+        .from(users)
+        .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
+        .leftJoin(subCommittees, eq(subCommittees.id, memberProfiles.assignedSubCommitteeId))
+        .where(inArray(users.role, [...MEMBER_ROLES])),
+      db.select().from(trainingSessions).orderBy(desc(trainingSessions.date)),
+      db
+        .select()
+        .from(announcements)
+        .where(or(eq(announcements.audience, "all"), eq(announcements.audience, "coaches")))
+        .orderBy(desc(announcements.createdAt)),
+      db
+        .select()
+        .from(applications)
+        .where(eq(applications.status, "pending"))
+        .orderBy(desc(applications.createdAt)),
+      db
+        .select({
+          id: users.id,
+          email: users.email,
+          role: users.role,
+          excoPosition: users.excoPosition,
+          status: users.status,
+          fullName: memberProfiles.fullName,
+        })
+        .from(users)
+        .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
+        .orderBy(desc(users.createdAt)),
+    ]);
 
-  const activeSession = sessions.find((s) => s.date === toDateInput(new Date())) ?? null;
+  const activeSession =
+    sessions.find((s) => s.date === toDateInput(new Date()) && !s.endedAt) ?? null;
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -110,6 +125,8 @@ export default async function CoachDashboardPage() {
           </ul>
         )}
       </div>
+
+      <UsersRolesTable rows={allUsersForRoles} currentUserId={coach.id} />
 
       <MemberRegister
         note="Everyone on the training register, with contact, grading, and sub-committee details."

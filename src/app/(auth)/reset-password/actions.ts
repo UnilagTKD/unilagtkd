@@ -3,7 +3,9 @@
 import { hash } from "bcryptjs";
 import { and, eq, gt } from "drizzle-orm";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { users, memberProfiles } from "@/db/schema";
+import { passwordStrengthError } from "@/lib/password-strength";
+import { sendPasswordChangedEmail } from "@/lib/email";
 
 export type CompleteResetResult = { ok: true } | { ok: false; error: string };
 
@@ -21,13 +23,15 @@ export async function completePasswordReset(
   token: string,
   password: string
 ): Promise<CompleteResetResult> {
-  if (password.length < 8) {
-    return { ok: false, error: "Password must be at least 8 characters." };
+  const strengthError = passwordStrengthError(password);
+  if (strengthError) {
+    return { ok: false, error: strengthError };
   }
 
   const [user] = await db
-    .select({ id: users.id })
+    .select({ id: users.id, email: users.email, fullName: memberProfiles.fullName })
     .from(users)
+    .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
     .where(and(eq(users.resetToken, token), gt(users.resetTokenExpires, new Date())))
     .limit(1);
 
@@ -48,6 +52,8 @@ export async function completePasswordReset(
       resetRequestedAt: null,
     })
     .where(eq(users.id, user.id));
+
+  await sendPasswordChangedEmail(user.email, user.fullName ?? user.email);
 
   return { ok: true };
 }

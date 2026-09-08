@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { users, memberProfiles } from "@/db/schema";
+import { passwordStrengthError } from "@/lib/password-strength";
+import { sendPasswordChangedEmail } from "@/lib/email";
 
 async function requireUser() {
   const session = await auth();
@@ -21,6 +23,7 @@ export async function updateOwnProfile(data: {
   phone?: string;
   address?: string;
   avatarUrl?: string;
+  signatureUrl?: string;
   username?: string;
   beltGrade?: string;
 }): Promise<ActionResult> {
@@ -58,6 +61,7 @@ export async function updateOwnProfile(data: {
       phone: data.phone || null,
       address: data.address || null,
       avatarUrl: data.avatarUrl || null,
+      signatureUrl: data.signatureUrl || null,
       beltGrade: data.beltGrade || null,
     })
     .where(eq(memberProfiles.userId, user.id));
@@ -73,13 +77,15 @@ export async function changeOwnPassword(
 ): Promise<ActionResult> {
   const user = await requireUser();
 
-  if (newPassword.length < 8) {
-    return { ok: false, error: "New password must be at least 8 characters." };
+  const strengthError = passwordStrengthError(newPassword);
+  if (strengthError) {
+    return { ok: false, error: strengthError };
   }
 
   const [row] = await db
-    .select({ passwordHash: users.passwordHash })
+    .select({ passwordHash: users.passwordHash, fullName: memberProfiles.fullName })
     .from(users)
+    .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
     .where(eq(users.id, user.id))
     .limit(1);
 
@@ -94,6 +100,10 @@ export async function changeOwnPassword(
 
   const newHash = await hash(newPassword, 10);
   await db.update(users).set({ passwordHash: newHash }).where(eq(users.id, user.id));
+
+  if (user.email) {
+    await sendPasswordChangedEmail(user.email, row.fullName ?? user.email);
+  }
 
   return { ok: true };
 }

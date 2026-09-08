@@ -1,8 +1,10 @@
 "use server";
 
+import { headers } from "next/headers";
 import { z } from "zod";
 import { db } from "@/db";
 import { contactMessages } from "@/db/schema";
+import { rateLimit } from "@/lib/rate-limit";
 
 const contactSchema = z.object({
   name: z.string().min(2, "Name is required"),
@@ -14,6 +16,12 @@ const contactSchema = z.object({
 export type SubmitContactResult = { ok: true } | { ok: false; error: string };
 
 export async function submitContactMessage(input: unknown): Promise<SubmitContactResult> {
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const { allowed } = rateLimit(`contact:${ip}`, 5, 60 * 60_000);
+  if (!allowed) {
+    return { ok: false, error: "Too many messages from this connection. Please try again later." };
+  }
+
   const parsed = contactSchema.safeParse(input);
 
   if (!parsed.success) {

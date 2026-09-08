@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { acceptGradingRequest, declineGradingRequest } from "./actions";
 
-type OpenGrading = { id: string; title: string };
+type OpenGrading = { id: string; title: string; fee: string | null };
 
 export function GradingRequestRow({
   requestId,
@@ -26,10 +26,18 @@ export function GradingRequestRow({
   const router = useRouter();
   const [mode, setMode] = useState<"idle" | "accept" | "decline">("idle");
   const [gradingId, setGradingId] = useState(openGradings[0]?.id ?? "");
+  const [amount, setAmount] = useState(openGradings[0]?.fee ?? "");
   const [overrideReason, setOverrideReason] = useState("");
   const [declineNote, setDeclineNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function onSelectGrading(id: string) {
+    setGradingId(id);
+    // Pre-fill with the grading's standard fee - the coach can still change it
+    // for this candidate specifically.
+    setAmount(openGradings.find((g) => g.id === id)?.fee ?? "");
+  }
 
   async function onAccept(e: React.FormEvent) {
     e.preventDefault();
@@ -44,6 +52,7 @@ export function GradingRequestRow({
         requestId,
         gradingId,
         overrideReason: overrideReason.trim() || undefined,
+        amount: amount.trim() || undefined,
       });
       router.refresh();
     } catch (err) {
@@ -121,7 +130,7 @@ export function GradingRequestRow({
           ) : (
             <select
               value={gradingId}
-              onChange={(e) => setGradingId(e.target.value)}
+              onChange={(e) => onSelectGrading(e.target.value)}
               className="w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-xs"
             >
               {openGradings.map((g) => (
@@ -130,6 +139,20 @@ export function GradingRequestRow({
                 </option>
               ))}
             </select>
+          )}
+          {openGradings.length > 0 && (
+            <label className="block text-xs font-medium text-zinc-600">
+              Amount (&#8358;)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Leave blank to use this grading's standard fee"
+                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-xs"
+              />
+            </label>
           )}
           {!eligible && (
             <input

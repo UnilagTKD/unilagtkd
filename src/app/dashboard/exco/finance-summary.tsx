@@ -1,32 +1,38 @@
-export type FinanceRow = {
-  amount: string;
-  paid: boolean;
-  paymentClaimed: boolean;
+import { naira } from "@/lib/currency";
+
+// Pre-aggregated in SQL (grouped by period_label) rather than summed here from
+// every individual charge - the ledger only ever needs totals, and a club with
+// years of dues history would otherwise ship every row just to add them up.
+export type FinancePeriodSummary = {
+  periodLabel: string;
+  count: number;
+  total: number;
+  collected: number;
+  claimed: number;
 };
 
-const naira = new Intl.NumberFormat("en-NG", {
-  style: "currency",
-  currency: "NGN",
-  maximumFractionDigits: 0,
-});
-
-export function FinanceSummary({ rows }: { rows: FinanceRow[] }) {
-  const total = rows.reduce((sum, r) => sum + Number(r.amount), 0);
-  const collected = rows
-    .filter((r) => r.paid)
-    .reduce((sum, r) => sum + Number(r.amount), 0);
-  const claimed = rows
-    .filter((r) => r.paymentClaimed && !r.paid)
-    .reduce((sum, r) => sum + Number(r.amount), 0);
-  const outstanding = total - collected;
-  const rate = total === 0 ? 0 : Math.round((collected / total) * 100);
+export function FinanceSummary({ periods }: { periods: FinancePeriodSummary[] }) {
+  const overall = periods.reduce(
+    (acc, p) => ({
+      total: acc.total + p.total,
+      collected: acc.collected + p.collected,
+      claimed: acc.claimed + p.claimed,
+    }),
+    { total: 0, collected: 0, claimed: 0 }
+  );
+  const outstanding = overall.total - overall.collected;
+  const rate = overall.total === 0 ? 0 : Math.round((overall.collected / overall.total) * 100);
 
   const tiles = [
-    { label: "Charged", value: naira.format(total) },
-    { label: "Collected", value: naira.format(collected) },
+    { label: "Charged", value: naira.format(overall.total) },
+    { label: "Collected", value: naira.format(overall.collected) },
     { label: "Outstanding", value: naira.format(outstanding) },
-    { label: "Awaiting confirmation", value: naira.format(claimed) },
+    { label: "Awaiting confirmation", value: naira.format(overall.claimed) },
   ];
+
+  const periodRows = periods
+    .map((p) => ({ ...p, outstanding: p.total - p.collected }))
+    .sort((a, b) => b.total - a.total);
 
   return (
     <div className="rounded-xl border border-black/10 bg-white p-6">
@@ -45,6 +51,33 @@ export function FinanceSummary({ rows }: { rows: FinanceRow[] }) {
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-zinc-100">
         <div className="h-full rounded-full bg-brand-red" style={{ width: `${rate}%` }} />
       </div>
+
+      {periodRows.length > 1 && (
+        <div className="mt-6 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-zinc-500">
+              <tr>
+                <th className="py-2">Charge</th>
+                <th className="py-2">Members</th>
+                <th className="py-2">Charged</th>
+                <th className="py-2">Collected</th>
+                <th className="py-2">Outstanding</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black/5">
+              {periodRows.map((p) => (
+                <tr key={p.periodLabel}>
+                  <td className="py-2 font-medium text-brand-black">{p.periodLabel}</td>
+                  <td className="py-2 text-zinc-600">{p.count}</td>
+                  <td className="py-2 text-zinc-600">{naira.format(p.total)}</td>
+                  <td className="py-2 text-zinc-600">{naira.format(p.collected)}</td>
+                  <td className="py-2 text-zinc-600">{naira.format(p.outstanding)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

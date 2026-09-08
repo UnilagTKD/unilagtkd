@@ -180,6 +180,44 @@ async function chargeCandidate(gradingId: string, userId: string) {
   });
 }
 
+/**
+ * Charges a candidate a specific amount for a grading, overriding the
+ * grading's standard fee for just this person - e.g. a coach settling on a
+ * price while accepting their self-nomination, rather than waiting for a fee
+ * to be set on the grading itself.
+ *
+ * Updates the amount in place if this candidate is already charged (and not
+ * yet paid); leaves a paid charge untouched, since a receipt has already been
+ * issued against it.
+ */
+async function chargeCandidateAmount(gradingId: string, userId: string, amount: string) {
+  const [existing] = await db
+    .select({ id: dues.id, paid: dues.paid })
+    .from(dues)
+    .where(and(eq(dues.gradingId, gradingId), eq(dues.userId, userId)))
+    .limit(1);
+
+  if (existing) {
+    if (existing.paid) return;
+    await db.update(dues).set({ amount }).where(eq(dues.id, existing.id));
+    return;
+  }
+
+  const [grading] = await db
+    .select({ title: gradingEvents.title })
+    .from(gradingEvents)
+    .where(eq(gradingEvents.id, gradingId))
+    .limit(1);
+  if (!grading) return;
+
+  await db.insert(dues).values({
+    userId,
+    gradingId,
+    periodLabel: `Grading: ${grading.title}`,
+    amount,
+  });
+}
+
 export async function createGrading(data: {
   title: string;
   date: string;
@@ -363,11 +401,16 @@ async function loadPendingRequest(requestId: string) {
  * Accepts a member's grading request by entering them into an existing
  * grading event - the same eligibility check and override path as entering a
  * candidate directly, since this is exactly that, just member-initiated.
+ *
+ * `amount`, if given, is the fee for this candidate specifically - it wins
+ * over the grading's standard fee, so a coach can price this acceptance on
+ * the spot instead of relying on (or waiting for) a fee set on the grading.
  */
 export async function acceptGradingRequest(data: {
   requestId: string;
   gradingId: string;
   overrideReason?: string;
+  amount?: string;
 }) {
   const user = await requireCoach();
   const request = await loadPendingRequest(data.requestId);
@@ -378,6 +421,11 @@ export async function acceptGradingRequest(data: {
     targetBeltId: request.targetBeltId,
     overrideReason: data.overrideReason,
   });
+
+  const amount = parseFee(data.amount);
+  if (amount) {
+    await chargeCandidateAmount(data.gradingId, request.userId, amount);
+  }
 
   await db
     .update(gradingRequests)
@@ -392,6 +440,7 @@ export async function acceptGradingRequest(data: {
   revalidatePath("/dashboard/coach/grading");
   revalidatePath(`/dashboard/coach/grading/${data.gradingId}`);
   revalidatePath("/dashboard/grading");
+  revalidatePath("/dashboard/payments");
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");
 }

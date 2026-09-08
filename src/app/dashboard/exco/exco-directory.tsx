@@ -22,7 +22,7 @@ export function ExcoDirectory({
       </p>
       <ul className="mt-4 divide-y divide-black/5 text-sm">
         {rows.map((row) => (
-          <li key={row.id} className="flex items-center justify-between gap-3 py-2">
+          <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
             <div>
               <span className="font-medium text-brand-black">{row.name}</span>
               {row.id === currentUserId && (

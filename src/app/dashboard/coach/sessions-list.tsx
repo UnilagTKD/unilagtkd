@@ -15,6 +15,7 @@ type Session = {
   endTime: string | null;
   location: string | null;
   description: string | null;
+  endedAt: Date | null;
 };
 
 function EditSessionForm({
@@ -129,19 +130,26 @@ export function SessionsList({ sessions }: { sessions: Session[] }) {
             <EditSessionForm session={s} onCancel={() => setEditingId(null)} />
           </li>
         ) : (
-          <li key={s.id} className="flex items-center justify-between gap-3 py-3">
+          <li key={s.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="font-medium text-brand-black">{s.title}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-brand-black">{s.title}</span>
+                {s.endedAt && (
+                  <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600">
+                    Ended
+                  </span>
+                )}
+              </div>
               <div className="text-xs text-zinc-500">
                 {s.date} {s.startTime && `· ${s.startTime}–${s.endTime}`} {s.location && `· ${s.location}`}
               </div>
             </div>
-            <div className="flex flex-none items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 sm:flex-none">
               <Link
                 href={`/dashboard/coach/attendance/${s.id}`}
                 className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-brand-black hover:bg-zinc-50"
               >
-                Mark Attendance
+                {s.endedAt ? "View Attendance" : "Mark Attendance"}
               </Link>
               <button
                 type="button"

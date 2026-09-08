@@ -12,13 +12,17 @@ export function ApplicationReview({ application }: { application: Application })
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState<"approved" | "rejected" | null>(null);
   const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   async function decide(decision: "approved" | "rejected") {
     setSubmitting(decision);
     const result = await reviewApplication(application.id, decision, notes);
     setSubmitting(null);
-    if (result.setupLink) setSetupLink(result.setupLink);
+    if (result.setupLink) {
+      setSetupLink(result.setupLink);
+      setEmailSent(Boolean("emailSent" in result && result.emailSent));
+    }
     router.refresh();
   }
 
@@ -26,8 +30,10 @@ export function ApplicationReview({ application }: { application: Application })
     return (
       <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm">
         <p className="font-medium text-green-800">
-          {application.fullName} approved. Share this setup link with them to activate their
-          account:
+          {application.fullName} approved.{" "}
+          {emailSent
+            ? `An activation email was sent to ${application.email}.`
+            : "Email is not configured, so share this setup link with them directly:"}
         </p>
         <code className="mt-2 block break-all rounded bg-white p-2 text-xs text-zinc-700">
           {typeof window !== "undefined" ? window.location.origin : ""}

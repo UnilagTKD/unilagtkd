@@ -1,16 +1,7 @@
 import "server-only";
 
-import { headers } from "next/headers";
 import QRCode from "qrcode";
-
-async function getBaseUrl() {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("host");
-  if (!host) return process.env.NEXTAUTH_URL ?? "http://localhost:5213";
-
-  const proto = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
-}
+import { getBaseUrl } from "@/lib/site-url";
 
 export async function SessionCheckInQr({
   sessionId,

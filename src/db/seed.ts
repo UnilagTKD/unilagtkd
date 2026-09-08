@@ -3,13 +3,18 @@
  * on first login. No real club MEMBER data (names, matric numbers, contact
  * info, medical info) is used anywhere in this file. See plan notes on PII.
  *
- * The three Insights posts below are the one exception: their content is
- * adapted from the club's own real internal memos (grading-day protocol, the
- * 2026 competition calendar, membership reactivation policy), attributed
- * generically to the issuing office rather than the individual student
- * officer who signed the original memo. The Head Coach's name is the one
- * individual name reused here, matching the leadership section above, which
- * already treats it as public/institutional.
+ * Two exceptions carry real (non-member-PII) content:
+ *  - The Insights posts are adapted from the club's own real internal memos
+ *    (grading-day protocol, the 2026 competition calendar, membership
+ *    reactivation policy), attributed generically to the issuing office
+ *    rather than the individual student officer who signed the original
+ *    memo. The Head Coach's name is the one individual name reused here,
+ *    matching the leadership section above, which already treats it as
+ *    public/institutional.
+ *  - The achievements are real 2026 season results adapted from the club's
+ *    sponsorship prospectus, aggregated by medal tier per tournament rather
+ *    than attributed to named athletes, since that source has no per-athlete
+ *    breakdown and no individual student's name should be hardcoded here.
  *
  * Run with: npm run db:seed
  */
@@ -409,45 +414,84 @@ async function main() {
     },
   ]);
 
-  console.log("Seeding achievements (fictional results)...");
-  await db.insert(achievements).values([
+  console.log("Seeding achievements (real 2026 season results, one row per medal)...");
+  // Real tournament results for the current season, adapted from the club's
+  // own sponsorship prospectus and confirmed against its DSA accommodation
+  // request letter. Neither source names individual medal-winners, so every
+  // row is attributed to a generic "UNILAG TKD Athlete" rather than a real
+  // student's name - but the row COUNT is real: one row per medal actually
+  // won, so the tally on the site matches the club's claimed 6 Gold / 7
+  // Silver / 9 Bronze (22 total) exactly.
+  const seasonResults: {
+    medal: "gold" | "silver" | "bronze";
+    count: number;
+    competitionName: string;
+    competitionDate: string;
+    venue: string;
+  }[] = [
     {
-      athleteName: "Demo Athlete One",
-      matricNo: "TKD/00/0002",
-      sex: "Male",
-      course: "Demo Course",
-      level: "400",
       medal: "gold",
-      competitionName: "Demo Open Taekwondo Championship",
-      competitionDate: "2026-02-14",
-      venue: "Demo Venue, Lagos",
-      createdBy: secretaryUser.id,
+      count: 5,
+      competitionName: "4th U-20 Tolubabami Taekwondo Championship",
+      competitionDate: "2026-05-09",
+      venue: "National Stadium, Surulere, Lagos",
     },
     {
-      athleteName: "Demo Athlete Two",
-      matricNo: "TKD/00/0003",
-      sex: "Female",
-      course: "Demo Course",
-      level: "300",
       medal: "silver",
-      competitionName: "Demo Open Taekwondo Championship",
-      competitionDate: "2026-02-14",
-      venue: "Demo Venue, Lagos",
-      createdBy: secretaryUser.id,
+      count: 6,
+      competitionName: "4th U-20 Tolubabami Taekwondo Championship",
+      competitionDate: "2026-05-09",
+      venue: "National Stadium, Surulere, Lagos",
     },
     {
-      athleteName: "Demo Athlete Three",
-      matricNo: "TKD/00/0004",
-      sex: "Male",
-      course: "Demo Course",
-      level: "200",
       medal: "bronze",
-      competitionName: "Demo Invitational Cup",
-      competitionDate: "2026-04-11",
-      venue: "Demo Stadium, Lagos",
-      createdBy: secretaryUser.id,
+      count: 3,
+      competitionName: "4th U-20 Tolubabami Taekwondo Championship",
+      competitionDate: "2026-05-09",
+      venue: "National Stadium, Surulere, Lagos",
     },
-  ]);
+    {
+      medal: "gold",
+      count: 1,
+      competitionName: "Jibadex U-21 Taekwondo Open",
+      competitionDate: "2026-02-14",
+      venue: "Ikorodu, Lagos",
+    },
+    {
+      medal: "bronze",
+      count: 3,
+      competitionName: "Jibadex U-21 Taekwondo Open",
+      competitionDate: "2026-02-14",
+      venue: "Ikorodu, Lagos",
+    },
+    {
+      medal: "bronze",
+      count: 3,
+      competitionName: "National Taekwondo Senior Open Trials (Ogun State)",
+      competitionDate: "2026-05-13",
+      venue: "Abeokuta, Ogun State",
+    },
+    {
+      medal: "silver",
+      count: 1,
+      competitionName: "Master Kenny Taekwondo Open",
+      competitionDate: "2026-04-11",
+      venue: "Surulere, Lagos",
+    },
+  ];
+
+  await db.insert(achievements).values(
+    seasonResults.flatMap((result) =>
+      Array.from({ length: result.count }, () => ({
+        athleteName: "UNILAG TKD Athlete",
+        medal: result.medal,
+        competitionName: result.competitionName,
+        competitionDate: result.competitionDate,
+        venue: result.venue,
+        createdBy: secretaryUser.id,
+      }))
+    )
+  );
 
   console.log("Seeding gallery items (placeholder images)...");
   await db.insert(galleryItems).values([

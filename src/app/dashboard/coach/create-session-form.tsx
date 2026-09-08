@@ -7,10 +7,24 @@ import { createTrainingSession } from "../actions";
 import { TRAINING_SESSION_TITLES, TRAINING_SESSION_LOCATIONS } from "@/lib/constants";
 import { toDateInput } from "@/lib/dates";
 
+// A session runs about 2 hours, so picking a start time fills in a sensible
+// end time - still just a default, and freely editable afterward.
+const SESSION_LENGTH_HOURS = 2;
+
+function addHours(time: string, hours: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const totalMinutes = (h * 60 + m + hours * 60) % (24 * 60);
+  const endHour = Math.floor(totalMinutes / 60);
+  const endMinute = totalMinutes % 60;
+  return `${String(endHour).padStart(2, "0")}:${String(endMinute).padStart(2, "0")}`;
+}
+
 export function CreateSessionForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [startTime, setStartTime] = useState("16:30");
+  const [endTime, setEndTime] = useState(addHours("16:30", SESSION_LENGTH_HOURS));
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -63,10 +77,26 @@ export function CreateSessionForm() {
           />
         </Field>
         <Field label="Start Time">
-          <input type="time" name="startTime" className={inputClass} />
+          <input
+            type="time"
+            name="startTime"
+            value={startTime}
+            onChange={(e) => {
+              const value = e.target.value;
+              setStartTime(value);
+              if (value) setEndTime(addHours(value, SESSION_LENGTH_HOURS));
+            }}
+            className={inputClass}
+          />
         </Field>
         <Field label="End Time">
-          <input type="time" name="endTime" className={inputClass} />
+          <input
+            type="time"
+            name="endTime"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            className={inputClass}
+          />
         </Field>
       </div>
       <Field label="Location">

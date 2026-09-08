@@ -15,6 +15,7 @@ export default async function SettingsPage() {
       phone: memberProfiles.phone,
       address: memberProfiles.address,
       avatarUrl: memberProfiles.avatarUrl,
+      signatureUrl: memberProfiles.signatureUrl,
       beltGrade: memberProfiles.beltGrade,
     })
     .from(memberProfiles)
@@ -41,6 +42,7 @@ export default async function SettingsPage() {
         initialPhone={profile?.phone ?? ""}
         initialAddress={profile?.address ?? ""}
         initialAvatarUrl={profile?.avatarUrl ?? ""}
+        initialSignatureUrl={profile?.signatureUrl ?? ""}
         initialBeltGrade={profile?.beltGrade ?? ""}
       />
     </div>

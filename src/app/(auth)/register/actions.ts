@@ -1,8 +1,10 @@
 "use server";
 
+import { headers } from "next/headers";
 import { db } from "@/db";
 import { applications } from "@/db/schema";
 import { applicationSchema } from "@/lib/validation/application";
+import { rateLimit } from "@/lib/rate-limit";
 
 export type SubmitApplicationResult =
   | { ok: true; applicationId: string }
@@ -11,6 +13,14 @@ export type SubmitApplicationResult =
 export async function submitApplication(
   input: unknown
 ): Promise<SubmitApplicationResult> {
+  // Public, unauthenticated form - bound how many pending applications one
+  // source can flood the review queue with.
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const { allowed } = rateLimit(`application:${ip}`, 5, 60 * 60_000);
+  if (!allowed) {
+    return { ok: false, error: "Too many submissions from this connection. Please try again later." };
+  }
+
   const parsed = applicationSchema.safeParse(input);
 
   if (!parsed.success) {

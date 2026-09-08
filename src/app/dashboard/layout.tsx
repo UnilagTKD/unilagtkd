@@ -5,6 +5,7 @@ import type { UserRole } from "@/types/next-auth";
 import { ClubLogo } from "@/components/club-logo";
 import { getExcoPosition } from "@/lib/session";
 import { EXCO_POSITION_SHORT_LABELS } from "@/lib/exco";
+import { DashboardMobileNav } from "./mobile-nav";
 
 const NAV_BY_ROLE: Record<UserRole, { href: string; label: string }[]> = {
   student: [
@@ -79,6 +80,11 @@ export default async function DashboardLayout({
     });
   }
 
+  async function signOutAction() {
+    "use server";
+    await signOut({ redirectTo: "/" });
+  }
+
   return (
     <div className="flex min-h-screen bg-zinc-50">
       <aside className="sticky top-0 hidden h-screen w-64 flex-none flex-col border-r border-black/10 bg-white sm:flex print:hidden">
@@ -112,12 +118,7 @@ export default async function DashboardLayout({
           >
             &larr; Back to site
           </Link>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/" });
-            }}
-          >
+          <form action={signOutAction}>
             <button
               type="submit"
               className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
@@ -129,37 +130,12 @@ export default async function DashboardLayout({
       </aside>
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 border-b border-black/10 bg-white sm:hidden print:hidden">
-          <div className="flex h-14 items-center justify-between px-4">
-            <Link href="/" className="flex items-center gap-2">
-              <ClubLogo size={28} />
-              <span className="text-sm font-semibold text-brand-black">UNILAG TKD</span>
-            </Link>
-            <form
-              action={async () => {
-                "use server";
-                await signOut({ redirectTo: "/" });
-              }}
-            >
-              <button type="submit" className="text-xs font-medium text-brand-red">
-                Sign out
-              </button>
-            </form>
-          </div>
-          {navLinks.length > 1 && (
-            <nav className="flex gap-2 overflow-x-auto border-t border-black/10 px-4 py-2 text-xs font-medium">
-              {navLinks.map((link) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="flex-none rounded-full border border-zinc-200 px-3 py-1.5 text-zinc-700 hover:bg-zinc-100"
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </nav>
-          )}
-        </header>
+        <DashboardMobileNav
+          navLinks={navLinks}
+          email={session.user.email ?? ""}
+          role={session.user.role}
+          signOutAction={signOutAction}
+        />
         <main className="min-w-0 p-4 sm:p-8">{children}</main>
       </div>
     </div>

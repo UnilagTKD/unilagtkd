@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field, inputClass } from "@/components/form/fields";
+import { PhotoUpload } from "@/components/form/photo-upload";
 import { createInsight } from "@/app/dashboard/actions";
 
 export function InsightForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [coverImageUrl, setCoverImageUrl] = useState("");
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -18,12 +20,13 @@ export function InsightForm() {
       title: String(form.get("title")),
       excerpt: String(form.get("excerpt")),
       body: String(form.get("body")),
-      coverImageUrl: String(form.get("coverImageUrl") || ""),
+      coverImageUrl,
       category: form.get("category") as "training" | "competition" | "club_news" | "wellness",
       authorName: String(form.get("authorName") || ""),
     });
     setSubmitting(false);
     setOpen(false);
+    setCoverImageUrl("");
     router.refresh();
   }
 
@@ -55,8 +58,16 @@ export function InsightForm() {
       <Field label="Author (optional)">
         <input name="authorName" className={inputClass} />
       </Field>
-      <Field label="Cover Image URL (optional)" className="sm:col-span-2">
-        <input name="coverImageUrl" type="url" placeholder="https://..." className={inputClass} />
+      <Field label="Cover Image (optional)" className="sm:col-span-2">
+        <PhotoUpload
+          value={coverImageUrl}
+          onChange={setCoverImageUrl}
+          itemLabel="Cover Image"
+          previewAlt="Cover image preview"
+          previewClassName="object-cover"
+          noValueLabel={"No cover\nimage"}
+          helpText="Shown at the top of the post. Under 2MB."
+        />
       </Field>
       <Field label="Excerpt" className="sm:col-span-2">
         <textarea name="excerpt" required rows={2} className={inputClass} />
@@ -74,7 +85,10 @@ export function InsightForm() {
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            setOpen(false);
+            setCoverImageUrl("");
+          }}
           className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700"
         >
           Cancel

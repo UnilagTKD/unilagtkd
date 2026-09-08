@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import {
@@ -20,11 +20,13 @@ import {
   leaveRequests,
 } from "@/db/schema";
 import type { UserRole } from "@/types/next-auth";
+import { MEMBER_ROLES } from "@/lib/roles";
 import { requireExcoPermission } from "@/lib/session";
 import {
   excoPermissions,
   isExcoPosition,
   isLeaveReason,
+  type ExcoPermission,
   type ExcoPosition,
   type LeaveReason,
 } from "@/lib/exco";
@@ -38,6 +40,8 @@ import { slugify } from "@/lib/slugify";
 import { nextReceiptNo, receiptNoTaken } from "@/lib/receipts";
 import { rosterForSession } from "@/lib/attendance-data";
 import { toDateInput } from "@/lib/dates";
+import { sendSetupLinkEmail } from "@/lib/email";
+import { getBaseUrl } from "@/lib/site-url";
 
 async function requireRole(allowed: UserRole[]) {
   const session = await auth();
@@ -47,8 +51,8 @@ async function requireRole(allowed: UserRole[]) {
   return session.user;
 }
 
-/** Any coach, or the exco officer (Secretary) holding applications:manage. */
-async function requireApplicationReviewer() {
+/** Any coach, or the exco officer holding the given permission. */
+async function requireCoachOrExcoPermission(permission: ExcoPermission) {
   const session = await auth();
   if (!session?.user) throw new Error("Not authorized");
   if (session.user.role === "coach") {
@@ -60,11 +64,16 @@ async function requireApplicationReviewer() {
       .from(users)
       .where(eq(users.id, session.user.id))
       .limit(1);
-    if (excoPermissions("exco", row?.excoPosition ?? null).includes("applications:manage")) {
+    if (excoPermissions("exco", row?.excoPosition ?? null).includes(permission)) {
       return session.user;
     }
   }
   throw new Error("Not authorized");
+}
+
+/** Any coach, or the exco officer (Secretary) holding applications:manage. */
+async function requireApplicationReviewer() {
+  return requireCoachOrExcoPermission("applications:manage");
 }
 
 // ---------- Applications (coaches, exco Secretary) ----------
@@ -159,13 +168,25 @@ export async function reviewApplication(
 
   revalidatePath("/dashboard/coach");
   revalidatePath("/dashboard/exco");
-  return { ok: true as const, setupLink: `/setup-account?token=${setupToken}` };
+
+  const setupLink = `/setup-account?token=${setupToken}`;
+  const baseUrl = await getBaseUrl();
+  const emailResult = await sendSetupLinkEmail(
+    application.email,
+    application.fullName,
+    `${baseUrl}${setupLink}`
+  );
+
+  return { ok: true as const, setupLink, emailSent: emailResult.ok };
 }
 
-// ---------- User / role management (exco: General Secretary) ----------
+// ---------- User / role management (coach, exco: General Secretary) ----------
 
 export async function updateUserRole(userId: string, role: UserRole) {
-  await requireExcoPermission("members:manage_roles");
+  const caller = await requireCoachOrExcoPermission("members:manage_roles");
+  if (userId === caller.id) {
+    throw new Error("You cannot change your own role.");
+  }
   // An executive office only means something for exco members, so drop it
   // whenever someone is moved off the exco role.
   await db
@@ -173,10 +194,14 @@ export async function updateUserRole(userId: string, role: UserRole) {
     .set({ role, ...(role === "exco" ? {} : { excoPosition: null }) })
     .where(eq(users.id, userId));
   revalidatePath("/dashboard/exco");
+  revalidatePath("/dashboard/coach");
 }
 
 export async function updateExcoPosition(userId: string, position: ExcoPosition | null) {
-  await requireExcoPermission("members:manage_roles");
+  const caller = await requireCoachOrExcoPermission("members:manage_roles");
+  if (userId === caller.id) {
+    throw new Error("You cannot change your own exco office.");
+  }
 
   if (position !== null && !isExcoPosition(position)) {
     throw new Error("Unknown exco position");
@@ -184,12 +209,17 @@ export async function updateExcoPosition(userId: string, position: ExcoPosition 
 
   await db.update(users).set({ excoPosition: position }).where(eq(users.id, userId));
   revalidatePath("/dashboard/exco");
+  revalidatePath("/dashboard/coach");
 }
 
 export async function setUserStatus(userId: string, status: "active" | "inactive") {
-  await requireExcoPermission("members:manage_roles");
+  const caller = await requireCoachOrExcoPermission("members:manage_roles");
+  if (userId === caller.id) {
+    throw new Error("You cannot change your own status.");
+  }
   await db.update(users).set({ status }).where(eq(users.id, userId));
   revalidatePath("/dashboard/exco");
+  revalidatePath("/dashboard/coach");
 }
 
 // ---------- Training sessions & attendance (coach) ----------
@@ -248,11 +278,32 @@ export async function deleteTrainingSession(sessionId: string) {
   revalidatePath("/dashboard/coach/attendance");
 }
 
+/** Locks a session so its attendance can no longer be marked or self-checked into. */
+export async function endTrainingSession(sessionId: string) {
+  await requireRole(["coach"]);
+  await db
+    .update(trainingSessions)
+    .set({ endedAt: new Date() })
+    .where(eq(trainingSessions.id, sessionId));
+  revalidatePath("/dashboard/coach");
+  revalidatePath("/dashboard/coach/attendance");
+  revalidatePath(`/dashboard/coach/attendance/${sessionId}`);
+}
+
 export async function markAttendance(
   sessionId: string,
   entries: { userId: string; present: boolean }[]
 ) {
   const user = await requireRole(["coach"]);
+
+  const [trainingSession] = await db
+    .select({ endedAt: trainingSessions.endedAt })
+    .from(trainingSessions)
+    .where(eq(trainingSessions.id, sessionId))
+    .limit(1);
+
+  if (!trainingSession) throw new Error("This session no longer exists.");
+  if (trainingSession.endedAt) throw new Error("This session has ended; attendance is locked.");
 
   // A member who joined after this session, or who was on approved leave for
   // it, is not on its register. The marking page already leaves them out, but
@@ -306,13 +357,16 @@ export async function selfCheckIn(sessionId: string) {
   if (!session?.user) throw new Error("Not authenticated");
 
   const [trainingSession] = await db
-    .select({ date: trainingSessions.date, title: trainingSessions.title })
+    .select({ date: trainingSessions.date, title: trainingSessions.title, endedAt: trainingSessions.endedAt })
     .from(trainingSessions)
     .where(eq(trainingSessions.id, sessionId))
     .limit(1);
 
   if (!trainingSession) {
     return { ok: false as const, error: "This session no longer exists." };
+  }
+  if (trainingSession.endedAt) {
+    return { ok: false as const, error: "This session has ended; check-in is closed." };
   }
   if (trainingSession.date !== toDateInput(new Date())) {
     return { ok: false as const, error: "This check-in link is only valid on the day of the session." };
@@ -381,19 +435,63 @@ export async function deleteAnnouncement(id: string) {
 
 // ---------- Dues (exco: president / treasurer) ----------
 
+// Sentinel the Treasurer's "Student" dropdown sends to charge every member at
+// once instead of one person - kept in sync with dues-charge-form.tsx.
+const ALL_MEMBERS = "__all__";
+
 export async function createDuesCharge(data: {
   userId: string;
   periodLabel: string;
   amount: string;
 }) {
   await requireExcoPermission("dues:manage");
-  await db.insert(dues).values({
-    userId: data.userId,
-    periodLabel: data.periodLabel,
-    amount: data.amount,
-    paid: false,
-  });
+
+  const periodLabel = data.periodLabel.trim();
+
+  if (data.userId !== ALL_MEMBERS) {
+    await db.insert(dues).values({
+      userId: data.userId,
+      periodLabel,
+      amount: data.amount,
+      paid: false,
+    });
+    revalidatePath("/dashboard/exco");
+    return { ok: true as const, charged: 1, skipped: 0 };
+  }
+
+  // Charge every member (students, alumni, exco - coaches never pay dues),
+  // skipping anyone who already has a charge under this exact period label so
+  // a repeat click can't double-charge them.
+  const members = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.role, [...MEMBER_ROLES]));
+
+  const existing = await db
+    .select({ userId: dues.userId })
+    .from(dues)
+    .where(eq(dues.periodLabel, periodLabel));
+  const alreadyCharged = new Set(existing.map((e) => e.userId));
+
+  const toCharge = members.filter((m) => !alreadyCharged.has(m.id));
+
+  if (toCharge.length > 0) {
+    await db.insert(dues).values(
+      toCharge.map((m) => ({
+        userId: m.id,
+        periodLabel,
+        amount: data.amount,
+        paid: false,
+      }))
+    );
+  }
+
   revalidatePath("/dashboard/exco");
+  revalidatePath("/dashboard/payments");
+  revalidatePath("/dashboard/student");
+  revalidatePath("/dashboard/alumni");
+
+  return { ok: true as const, charged: toCharge.length, skipped: alreadyCharged.size };
 }
 
 export async function markDuesPaid(duesId: string, receiptNo?: string) {
@@ -442,6 +540,53 @@ export async function claimDuesPayment(duesId: string, reference?: string) {
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");
   revalidatePath("/dashboard/exco");
+}
+
+/**
+ * Self-reports a payment with no pre-existing charge to claim against - the
+ * normal case, since members typically pay before the Treasurer raises an
+ * official charge for them. Creates a dues row the same way a Treasurer-raised
+ * charge would, already marked as claimed, so it shows up for confirmation
+ * exactly like any other claim.
+ */
+export async function reportPayment(data: {
+  periodLabel: string;
+  amount: string;
+  reference?: string;
+}) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Not authenticated");
+  const allowed: UserRole[] = [...MEMBER_ROLES];
+  if (!allowed.includes(session.user.role)) {
+    throw new Error("Not authorized");
+  }
+
+  const periodLabel = data.periodLabel.trim();
+  if (!periodLabel) {
+    throw new Error("Tell us what this payment was for.");
+  }
+
+  const amount = Number(data.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Enter a valid amount.");
+  }
+
+  await db.insert(dues).values({
+    userId: session.user.id,
+    periodLabel,
+    amount: amount.toFixed(2),
+    paid: false,
+    paymentClaimed: true,
+    paymentClaimedAt: new Date(),
+    paymentReference: data.reference?.trim() || null,
+  });
+
+  revalidatePath("/dashboard/payments");
+  revalidatePath("/dashboard/student");
+  revalidatePath("/dashboard/alumni");
+  revalidatePath("/dashboard/exco");
+
+  return { ok: true as const };
 }
 
 // ---------- Achievements (exco: General Secretary) ----------
@@ -732,7 +877,7 @@ export async function dismissPasswordResetRequest(userId: string) {
  * it, plus the receipt number that would be allocated.
  */
 export async function getReceiptDraft(duesId: string) {
-  await requireExcoPermission("dues:manage");
+  const treasurer = await requireExcoPermission("dues:manage");
 
   const [row] = await db
     .select({
@@ -755,7 +900,17 @@ export async function getReceiptDraft(duesId: string) {
 
   if (!row) throw new Error("No such charge");
 
-  return { ...row, suggestedReceiptNo: row.receiptNo ?? (await nextReceiptNo()) };
+  const [treasurerProfile] = await db
+    .select({ signatureUrl: memberProfiles.signatureUrl })
+    .from(memberProfiles)
+    .where(eq(memberProfiles.userId, treasurer.id))
+    .limit(1);
+
+  return {
+    ...row,
+    suggestedReceiptNo: row.receiptNo ?? (await nextReceiptNo()),
+    hasSignature: Boolean(treasurerProfile?.signatureUrl),
+  };
 }
 
 /**
@@ -763,11 +918,28 @@ export async function getReceiptDraft(duesId: string) {
  * that money actually arrived: a member claim and reference are evidence, not
  * proof, so this stays a deliberate human step.
  *
+ * Requires the caller to already have a signature on file (Settings) - that
+ * signature is what prints on the receipt, so there is nothing to check here
+ * without it.
+ *
  * Refuses to re-issue against a charge that already carries a receipt, because
  * a receipt number is a permanent record and must not silently change.
  */
 export async function issueReceipt(duesId: string, receiptNo?: string) {
   const user = await requireExcoPermission("dues:manage");
+
+  const [treasurerProfile] = await db
+    .select({ signatureUrl: memberProfiles.signatureUrl })
+    .from(memberProfiles)
+    .where(eq(memberProfiles.userId, user.id))
+    .limit(1);
+
+  if (!treasurerProfile?.signatureUrl) {
+    return {
+      ok: false as const,
+      error: "Add your signature in Settings before issuing a receipt.",
+    };
+  }
 
   const [existing] = await db
     .select({ id: dues.id, receiptNo: dues.receiptNo, paid: dues.paid })

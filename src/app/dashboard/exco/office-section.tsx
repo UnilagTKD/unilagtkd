@@ -19,7 +19,7 @@ import {
   insights,
   contactMessages,
 } from "@/db/schema";
-import { eq, desc, inArray, isNotNull } from "drizzle-orm";
+import { eq, desc, inArray, isNotNull, sql } from "drizzle-orm";
 import { AnnouncementForm } from "./announcement-form";
 import { DeleteAnnouncementButton } from "./delete-announcement-button";
 import { DuesChargeForm } from "./dues-charge-form";
@@ -32,9 +32,7 @@ import { WelfarePanel } from "./welfare-panel";
 import { ExcoDirectory } from "./exco-directory";
 import { SubCommitteeAssign } from "./sub-committee-assign";
 import { ApplicationReview } from "@/components/dashboard/application-review";
-import { UserRoleSelect } from "@/components/dashboard/user-role-select";
-import { ExcoPositionSelect } from "@/components/dashboard/exco-position-select";
-import { ToggleStatusButton } from "@/components/dashboard/toggle-status-button";
+import { UsersRolesTable } from "@/components/dashboard/users-roles-table";
 import { PasswordResetReview } from "@/components/dashboard/password-reset-review";
 import { ContactMessageRow } from "@/components/dashboard/contact-message-row";
 import { AchievementForm } from "@/components/dashboard/achievement-form";
@@ -43,6 +41,11 @@ import { GalleryForm } from "@/components/dashboard/gallery-form";
 import { DeleteGalleryButton } from "@/components/dashboard/delete-gallery-button";
 import { InsightForm } from "@/components/dashboard/insight-form";
 import { DeleteInsightButton } from "@/components/dashboard/delete-insight-button";
+
+// Safety cap on the Treasurer's unpaid-charges list. Unpaid charges are
+// naturally self-limiting (they leave the list once paid), but this keeps a
+// single dashboard load bounded regardless.
+const UNPAID_DUES_LIMIT = 500;
 
 /**
  * The dashboard an exco post adds to a member's account. Their member
@@ -72,7 +75,8 @@ export async function ExcoOfficeSection() {
     allAnnouncements,
     members,
     allSubCommittees,
-    allDues,
+    duesSummary,
+    unpaidDues,
     allApplications,
     register,
     welfareRows,
@@ -97,6 +101,25 @@ export async function ExcoOfficeSection() {
       .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
       .where(inArray(users.role, [...ACTIVE_MEMBER_ROLES])),
     db.select().from(subCommittees),
+    // Totals, grouped in SQL rather than fetched row-by-row and summed here -
+    // the ledger only needs sums, and a club with years of history would
+    // otherwise ship every charge ever raised on every dashboard load.
+    canViewDues
+      ? db
+          .select({
+            periodLabel: dues.periodLabel,
+            count: sql<number>`count(*)`.mapWith(Number),
+            total: sql<number>`coalesce(sum(${dues.amount}), 0)`.mapWith(Number),
+            collected: sql<number>`coalesce(sum(${dues.amount}) filter (where ${dues.paid}), 0)`.mapWith(Number),
+            claimed: sql<number>`coalesce(sum(${dues.amount}) filter (where ${dues.paymentClaimed} and not ${dues.paid}), 0)`.mapWith(Number),
+            unpaidCount: sql<number>`count(*) filter (where not ${dues.paid})`.mapWith(Number),
+            claimedCount: sql<number>`count(*) filter (where ${dues.paymentClaimed} and not ${dues.paid})`.mapWith(Number),
+          })
+          .from(dues)
+          .groupBy(dues.periodLabel)
+      : [],
+    // What the Treasurer actually acts on - paid charges don't need to be
+    // re-fetched on every visit, members can already see their own receipt.
     canViewDues
       ? db
           .select({
@@ -113,7 +136,9 @@ export async function ExcoOfficeSection() {
           .from(dues)
           .innerJoin(users, eq(dues.userId, users.id))
           .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
+          .where(eq(dues.paid, false))
           .orderBy(desc(dues.createdAt))
+          .limit(UNPAID_DUES_LIMIT)
       : [],
     canViewApplications
       ? db.select().from(applications).orderBy(desc(applications.createdAt))
@@ -225,8 +250,13 @@ export async function ExcoOfficeSection() {
   const unreadMessageCount = allContactMessages.filter((m) => !m.read).length;
 
   const pendingApplications = allApplications.filter((a) => a.status === "pending");
-  const outstandingDues = allDues.filter((d) => !d.paid);
-  const pendingClaims = allDues.filter((d) => d.paymentClaimed && !d.paid);
+  const duesTotals = duesSummary.reduce(
+    (acc, p) => ({
+      outstandingCount: acc.outstandingCount + p.unpaidCount,
+      claimedCount: acc.claimedCount + p.claimedCount,
+    }),
+    { outstandingCount: 0, claimedCount: 0 }
+  );
   const pendingLeave = leaveRows.filter((r) => r.status === "pending");
 
   const heading = position ? `${EXCO_POSITION_SHORT_LABELS[position]} Dashboard` : "Exco Dashboard";
@@ -250,7 +280,7 @@ export async function ExcoOfficeSection() {
         </div>
       )}
 
-      {canManageDues && <PaymentClaimAlert initialCount={pendingClaims.length} />}
+      {canManageDues && <PaymentClaimAlert initialCount={duesTotals.claimedCount} />}
 
       <div className="grid gap-4 sm:grid-cols-3">
         {canViewApplications && (
@@ -266,7 +296,7 @@ export async function ExcoOfficeSection() {
         {canViewDues && (
           <div className="rounded-xl border border-black/10 bg-white p-5">
             <div className="text-xs uppercase tracking-wide text-zinc-500">Dues Outstanding</div>
-            <div className="mt-1 text-2xl font-bold text-brand-black">{outstandingDues.length}</div>
+            <div className="mt-1 text-2xl font-bold text-brand-black">{duesTotals.outstandingCount}</div>
           </div>
         )}
         {canReviewLeave && (
@@ -343,13 +373,7 @@ export async function ExcoOfficeSection() {
 
       {canViewDues && (
         <>
-          <FinanceSummary
-            rows={allDues.map((d) => ({
-              amount: d.amount,
-              paid: d.paid,
-              paymentClaimed: d.paymentClaimed,
-            }))}
-          />
+          <FinanceSummary periods={duesSummary} />
 
           <div className="rounded-xl border border-black/10 bg-white p-6">
             <h2 className="font-semibold text-brand-black">Dues Overview</h2>
@@ -362,43 +386,39 @@ export async function ExcoOfficeSection() {
                 Read-only. Charges are raised and payments confirmed by the Treasurer.
               </p>
             )}
-            <ul className="mt-6 divide-y divide-black/5 text-sm">
-              {allDues.map((d) => (
-                <li key={d.id} className="flex items-center justify-between gap-3 py-2">
+            <p className="mt-4 text-xs text-zinc-500">
+              Unpaid and awaiting-confirmation charges. Once a charge is paid it drops off this
+              list - the member can see their own receipt from Payments.
+            </p>
+            <ul className="mt-2 divide-y divide-black/5 text-sm">
+              {unpaidDues.map((d) => (
+                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span>
                     {d.userFullName ?? d.userEmail}, {d.periodLabel}: &#8358;{d.amount}
-                    {d.paymentClaimed && !d.paid && d.paymentReference && (
+                    {d.paymentClaimed && d.paymentReference && (
                       <span className="ml-1 text-xs text-zinc-400">
                         (ref: {d.paymentReference})
                       </span>
                     )}
                   </span>
                   <div className="flex flex-none items-center gap-2">
-                    {d.paid ? (
-                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
-                        {d.receiptNo ? `Receipt ${d.receiptNo}` : "Paid (no receipt)"}
+                    {d.paymentClaimed && (
+                      <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
+                        Claimed
                       </span>
+                    )}
+                    {canManageDues ? (
+                      <IssueReceiptButton duesId={d.id} />
                     ) : (
-                      <>
-                        {d.paymentClaimed && (
-                          <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
-                            Claimed
-                          </span>
-                        )}
-                        {canManageDues ? (
-                          <IssueReceiptButton duesId={d.id} />
-                        ) : (
-                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600">
-                            Unpaid
-                          </span>
-                        )}
-                      </>
+                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600">
+                        Unpaid
+                      </span>
                     )}
                   </div>
                 </li>
               ))}
-              {allDues.length === 0 && (
-                <li className="py-2 text-zinc-500">No dues charged yet.</li>
+              {unpaidDues.length === 0 && (
+                <li className="py-2 text-zinc-500">Nothing outstanding.</li>
               )}
             </ul>
           </div>
@@ -433,7 +453,7 @@ export async function ExcoOfficeSection() {
             </h3>
             <ul className="mt-2 divide-y divide-black/5 text-sm">
               {members.map((m) => (
-                <li key={m.id} className="flex items-center justify-between gap-3 py-2">
+                <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span className="text-brand-black">{m.fullName ?? m.email}</span>
                   <SubCommitteeAssign
                     userId={m.id}
@@ -494,7 +514,7 @@ export async function ExcoOfficeSection() {
           ) : (
             <ul className="mt-4 divide-y divide-black/5 text-sm">
               {pendingApplications.map((a) => (
-                <li key={a.id} className="flex items-center justify-between py-2">
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span>
                     {a.fullName}, {a.membershipCategory}
                   </span>
@@ -539,57 +559,7 @@ export async function ExcoOfficeSection() {
       )}
 
       {canManageRoles && (
-        <div className="rounded-xl border border-black/10 bg-white p-6">
-          <h2 className="font-semibold text-brand-black">
-            Users &amp; Roles ({allUsersForRoles.length})
-          </h2>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-zinc-500">
-                <tr>
-                  <th className="py-2">Name</th>
-                  <th className="py-2">Email</th>
-                  <th className="py-2">Role</th>
-                  <th className="py-2">Exco Office</th>
-                  <th className="py-2">Status</th>
-                  <th className="py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-black/5">
-                {allUsersForRoles.map((u) => (
-                  <tr key={u.id}>
-                    <td className="py-2">{u.fullName ?? "-"}</td>
-                    <td className="py-2 text-zinc-600">{u.email}</td>
-                    <td className="py-2">
-                      <UserRoleSelect userId={u.id} currentRole={u.role} />
-                    </td>
-                    <td className="py-2">
-                      <ExcoPositionSelect
-                        userId={u.id}
-                        currentRole={u.role}
-                        currentPosition={u.excoPosition}
-                      />
-                    </td>
-                    <td className="py-2">
-                      <span
-                        className={
-                          u.status === "active"
-                            ? "rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700"
-                            : "rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600"
-                        }
-                      >
-                        {u.status}
-                      </span>
-                    </td>
-                    <td className="py-2">
-                      <ToggleStatusButton userId={u.id} currentStatus={u.status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <UsersRolesTable rows={allUsersForRoles} currentUserId={user.id} />
       )}
 
       {canManageContent && (
@@ -600,7 +570,7 @@ export async function ExcoOfficeSection() {
           </div>
           <ul className="mt-6 divide-y divide-black/5 text-sm">
             {allAchievements.map((a) => (
-              <li key={a.id} className="flex items-center justify-between py-2">
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
                   {a.athleteName}, {a.medal}, {a.competitionName} ({a.competitionDate})
                 </span>
@@ -640,7 +610,7 @@ export async function ExcoOfficeSection() {
           </div>
           <ul className="mt-6 divide-y divide-black/5 text-sm">
             {allInsights.map((post) => (
-              <li key={post.id} className="flex items-center justify-between py-2">
+              <li key={post.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
                   {post.title}, <span className="text-zinc-500">{post.category}</span>
                 </span>

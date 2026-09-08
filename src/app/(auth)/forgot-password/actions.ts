@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
+import { rateLimit } from "@/lib/rate-limit";
 
 /**
  * Records a password reset request against the account, if it exists.
@@ -17,7 +18,14 @@ import { users } from "@/db/schema";
 export async function requestPasswordReset(email: string) {
   const normalized = email.trim().toLowerCase();
 
-  if (normalized) {
+  // Bounds repeated requests against one address. Same result either way, so
+  // this changes nothing the caller can observe - just caps how often the
+  // account's `resetRequestedAt` can be re-flagged.
+  const { allowed } = normalized
+    ? rateLimit(`reset-request:${normalized}`, 5, 15 * 60_000)
+    : { allowed: true };
+
+  if (normalized && allowed) {
     const [user] = await db
       .select({ id: users.id })
       .from(users)

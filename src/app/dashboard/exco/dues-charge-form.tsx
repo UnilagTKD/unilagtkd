@@ -5,22 +5,36 @@ import { useRouter } from "next/navigation";
 import { Field, inputClass } from "@/components/form/fields";
 import { createDuesCharge } from "../actions";
 
+// Kept in sync with the ALL_MEMBERS sentinel in ../actions.ts.
+const ALL_MEMBERS = "__all__";
+
 export function DuesChargeForm({ students }: { students: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
+    setResult(null);
     const form = new FormData(e.currentTarget);
-    await createDuesCharge({
-      userId: String(form.get("userId")),
+    const userId = String(form.get("userId"));
+    const outcome = await createDuesCharge({
+      userId,
       periodLabel: String(form.get("periodLabel")),
       amount: String(form.get("amount")),
     });
     setSubmitting(false);
-    setOpen(false);
+    if (userId === ALL_MEMBERS) {
+      setResult(
+        outcome.skipped > 0
+          ? `Charged ${outcome.charged} member(s). Skipped ${outcome.skipped} already charged for this period.`
+          : `Charged ${outcome.charged} member(s).`
+      );
+    } else {
+      setOpen(false);
+    }
     router.refresh();
   }
 
@@ -43,6 +57,7 @@ export function DuesChargeForm({ students }: { students: { id: string; name: str
           <option value="" disabled>
             Select
           </option>
+          <option value={ALL_MEMBERS}>All Members</option>
           {students.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -56,6 +71,7 @@ export function DuesChargeForm({ students }: { students: { id: string; name: str
       <Field label="Amount (₦)">
         <input name="amount" type="number" step="0.01" required className={inputClass} />
       </Field>
+      {result && <p className="text-xs font-medium text-green-700 sm:col-span-3">{result}</p>}
       <div className="flex gap-3 sm:col-span-3">
         <button
           type="submit"

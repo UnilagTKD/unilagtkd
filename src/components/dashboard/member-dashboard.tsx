@@ -145,7 +145,7 @@ export async function MemberDashboard({
               // silently dropping rows looks like data going missing.
               const excluded = a.beforeJoining || a.onLeave;
               return (
-                <li key={i} className="flex items-center justify-between gap-2 py-2">
+                <li key={i} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span className={excluded ? "text-zinc-400" : undefined}>
                     {a.sessionTitle}, {a.sessionDate}
                   </span>
@@ -178,7 +178,7 @@ export async function MemberDashboard({
         ) : (
           <ul className="mt-4 divide-y divide-black/5 text-sm">
             {duesRows.map((d) => (
-              <li key={d.id} className="flex items-center justify-between gap-3 py-3">
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                 <span>
                   {d.periodLabel}: &#8358;{d.amount}
                 </span>

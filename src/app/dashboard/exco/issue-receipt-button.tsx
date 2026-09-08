@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getReceiptDraft, issueReceipt } from "../actions";
 
 type Draft = Awaited<ReturnType<typeof getReceiptDraft>>;
@@ -123,12 +124,22 @@ export function IssueReceiptButton({ duesId }: { duesId: string }) {
         hand &mdash; it cannot be edited once issued.
       </p>
 
+      {!draft.hasSignature && (
+        <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+          You have no signature on file, so a receipt cannot be issued yet.{" "}
+          <Link href="/dashboard/settings" className="font-semibold underline">
+            Add one in Settings
+          </Link>
+          , then reopen this claim &mdash; it prints on every receipt you confirm.
+        </p>
+      )}
+
       {error && <p className="mt-2 text-xs text-brand-red">{error}</p>}
 
       <div className="mt-3 flex gap-2">
         <button
           type="button"
-          disabled={busy || !receiptNo.trim()}
+          disabled={busy || !receiptNo.trim() || !draft.hasSignature}
           onClick={confirm}
           className="rounded-full bg-brand-red px-3 py-1 text-xs font-semibold text-white disabled:opacity-60"
         >

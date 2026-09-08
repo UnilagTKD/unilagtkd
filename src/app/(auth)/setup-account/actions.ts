@@ -4,6 +4,7 @@ import { hash } from "bcryptjs";
 import { eq, and, gt } from "drizzle-orm";
 import { db } from "@/db";
 import { applications, users } from "@/db/schema";
+import { passwordStrengthError } from "@/lib/password-strength";
 
 export type CompleteSetupResult = { ok: true } | { ok: false; error: string };
 
@@ -11,8 +12,9 @@ export async function completeAccountSetup(
   token: string,
   password: string
 ): Promise<CompleteSetupResult> {
-  if (password.length < 8) {
-    return { ok: false, error: "Password must be at least 8 characters." };
+  const strengthError = passwordStrengthError(password);
+  if (strengthError) {
+    return { ok: false, error: strengthError };
   }
 
   const [application] = await db

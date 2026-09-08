@@ -10,6 +10,7 @@ import {
   date,
   numeric,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -98,25 +99,31 @@ export const gradingRequestStatusEnum = pgEnum("grading_request_status", [
   "declined",
 ]);
 
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: varchar("email", { length: 255 }).notNull().unique(),
-  username: varchar("username", { length: 50 }).unique(),
-  passwordHash: text("password_hash"),
-  role: roleEnum("role").notNull().default("student"),
-  // Only meaningful when `role` is "exco": which executive office the member
-  // holds. Drives what the exco dashboard shows and what they may change.
-  excoPosition: excoPositionEnum("exco_position"),
-  status: userStatusEnum("status").notNull().default("active"),
-  // Password reset. The club has no outbound email, so a reset is mediated by
-  // the General Secretary: the member raises a request (resetRequestedAt), the
-  // Secretary verifies who they are and issues a link (resetToken), and hands
-  // it over directly.
-  resetRequestedAt: timestamp("reset_requested_at", { withTimezone: true }),
-  resetToken: varchar("reset_token", { length: 255 }).unique(),
-  resetTokenExpires: timestamp("reset_token_expires", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: varchar("email", { length: 255 }).notNull().unique(),
+    username: varchar("username", { length: 50 }).unique(),
+    passwordHash: text("password_hash"),
+    role: roleEnum("role").notNull().default("student"),
+    // Only meaningful when `role` is "exco": which executive office the member
+    // holds. Drives what the exco dashboard shows and what they may change.
+    excoPosition: excoPositionEnum("exco_position"),
+    status: userStatusEnum("status").notNull().default("active"),
+    // Password reset. The club has no outbound email, so a reset is mediated by
+    // the General Secretary: the member raises a request (resetRequestedAt), the
+    // Secretary verifies who they are and issues a link (resetToken), and hands
+    // it over directly.
+    resetRequestedAt: timestamp("reset_requested_at", { withTimezone: true }),
+    resetToken: varchar("reset_token", { length: 255 }).unique(),
+    resetTokenExpires: timestamp("reset_token_expires", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Nearly every roster/member-list query filters on role (e.g. "every active
+  // member"), so this is scanned on almost every dashboard page load.
+  (t) => [index("users_role_idx").on(t.role)]
+);
 
 export const memberProfiles = pgTable("member_profiles", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -145,6 +152,9 @@ export const memberProfiles = pgTable("member_profiles", {
     { onDelete: "set null" }
   ),
   avatarUrl: text("avatar_url"),
+  // A scanned/photographed signature, shown on official documents this
+  // member issues on the club's behalf (e.g. the Treasurer's dues receipts).
+  signatureUrl: text("signature_url"),
 });
 
 export const medicalRecords = pgTable("medical_records", {
@@ -172,8 +182,10 @@ export const subCommittees = pgTable("sub_committees", {
   description: text("description"),
 });
 
-export const applications = pgTable("applications", {
-  id: uuid("id").primaryKey().defaultRandom(),
+export const applications = pgTable(
+  "applications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
 
   // 1. Membership category
   membershipCategory: membershipCategoryEnum("membership_category").notNull(),
@@ -238,7 +250,9 @@ export const applications = pgTable("applications", {
   userId: uuid("user_id").references(() => users.id),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+  },
+  (t) => [index("applications_user_id_idx").on(t.userId)]
+);
 
 export const trainingSessions = pgTable("training_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -250,20 +264,30 @@ export const trainingSessions = pgTable("training_sessions", {
   description: text("description"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // Null while the session is open. Once set, attendance for this session is
+  // locked - no further self check-ins or coach marking.
+  endedAt: timestamp("ended_at", { withTimezone: true }),
 });
 
-export const attendance = pgTable("attendance", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  sessionId: uuid("session_id")
-    .notNull()
-    .references(() => trainingSessions.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  present: boolean("present").notNull().default(true),
-  markedBy: uuid("marked_by").references(() => users.id),
-  markedAt: timestamp("marked_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const attendance = pgTable(
+  "attendance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => trainingSessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    present: boolean("present").notNull().default(true),
+    markedBy: uuid("marked_by").references(() => users.id),
+    markedAt: timestamp("marked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("attendance_session_id_idx").on(t.sessionId),
+    index("attendance_user_id_idx").on(t.userId),
+  ]
+);
 
 // The club runs grading in periods rather than continuously. A coach opens a
 // window as a grading approaches; it lapses on its own at `closesAt`, or a
@@ -363,50 +387,65 @@ export const gradingCandidates = pgTable(
 // A student's self-nomination for grading, made while a grading window is
 // open. A coach accepts (which enters them into a specific grading event as a
 // grading_candidates row) or declines it.
-export const gradingRequests = pgTable("grading_requests", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  // The belt the student is asking to grade to ("yellow", "blue", ...).
-  targetBeltId: varchar("target_belt_id", { length: 20 }).notNull(),
-  note: text("note"),
-  status: gradingRequestStatusEnum("status").notNull().default("pending"),
-  reviewNote: text("review_note"),
-  reviewedBy: uuid("reviewed_by").references(() => users.id),
-  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-  // Set once accepted: the grading_candidates row this request became.
-  gradingCandidateId: uuid("grading_candidate_id").references(
-    () => gradingCandidates.id,
-    { onDelete: "set null" }
-  ),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const gradingRequests = pgTable(
+  "grading_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // The belt the student is asking to grade to ("yellow", "blue", ...).
+    targetBeltId: varchar("target_belt_id", { length: 20 }).notNull(),
+    note: text("note"),
+    status: gradingRequestStatusEnum("status").notNull().default("pending"),
+    reviewNote: text("review_note"),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    // Set once accepted: the grading_candidates row this request became.
+    gradingCandidateId: uuid("grading_candidate_id").references(
+      () => gradingCandidates.id,
+      { onDelete: "set null" }
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("grading_requests_user_id_idx").on(t.userId)]
+);
 
-export const dues = pgTable("dues", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  periodLabel: varchar("period_label", { length: 100 }).notNull(),
+export const dues = pgTable(
+  "dues",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    periodLabel: varchar("period_label", { length: 100 }).notNull(),
 
-  // Set when this charge is a grading fee rather than a membership due, so the
-  // grading pages can show payment state per candidate. Kept on delete so a
-  // settled payment survives the grading record being removed.
-  gradingId: uuid("grading_id").references(() => gradingEvents.id, {
-    onDelete: "set null",
-  }),
+    // Set when this charge is a grading fee rather than a membership due, so the
+    // grading pages can show payment state per candidate. Kept on delete so a
+    // settled payment survives the grading record being removed.
+    gradingId: uuid("grading_id").references(() => gradingEvents.id, {
+      onDelete: "set null",
+    }),
 
-  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
-  paid: boolean("paid").notNull().default(false),
-  paidAt: timestamp("paid_at", { withTimezone: true }),
-  receiptNo: varchar("receipt_no", { length: 100 }),
-  recordedBy: uuid("recorded_by").references(() => users.id),
-  paymentClaimed: boolean("payment_claimed").notNull().default(false),
-  paymentClaimedAt: timestamp("payment_claimed_at", { withTimezone: true }),
-  paymentReference: varchar("payment_reference", { length: 150 }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+    amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+    paid: boolean("paid").notNull().default(false),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    receiptNo: varchar("receipt_no", { length: 100 }),
+    recordedBy: uuid("recorded_by").references(() => users.id),
+    paymentClaimed: boolean("payment_claimed").notNull().default(false),
+    paymentClaimedAt: timestamp("payment_claimed_at", { withTimezone: true }),
+    paymentReference: varchar("payment_reference", { length: 150 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dues_user_id_idx").on(t.userId),
+    index("dues_grading_id_idx").on(t.gradingId),
+    // Backs the Treasurer's pending-claims count, polled every 20s.
+    index("dues_claimed_paid_idx").on(t.paymentClaimed, t.paid),
+    // Backs the Treasurer dashboard's unpaid-charges list.
+    index("dues_paid_idx").on(t.paid),
+  ]
+);
 
 export const achievements = pgTable("achievements", {
   id: uuid("id").primaryKey().defaultRandom(),

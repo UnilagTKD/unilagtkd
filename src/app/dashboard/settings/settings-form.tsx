@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Field, inputClass } from "@/components/form/fields";
 import { PasswordInput } from "@/components/form/password-input";
+import { PhotoUpload } from "@/components/form/photo-upload";
 import { updateOwnProfile, changeOwnPassword } from "./actions";
 import { BELT_SYSTEM } from "@/lib/constants";
 
@@ -13,6 +14,7 @@ export function SettingsForm({
   initialPhone,
   initialAddress,
   initialAvatarUrl,
+  initialSignatureUrl,
   initialBeltGrade,
 }: {
   email: string;
@@ -21,12 +23,14 @@ export function SettingsForm({
   initialPhone: string;
   initialAddress: string;
   initialAvatarUrl: string;
+  initialSignatureUrl: string;
   initialBeltGrade: string;
 }) {
   const [username, setUsername] = useState(initialUsername);
   const [phone, setPhone] = useState(initialPhone);
   const [address, setAddress] = useState(initialAddress);
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
+  const [signatureUrl, setSignatureUrl] = useState(initialSignatureUrl);
   const [beltGrade, setBeltGrade] = useState(initialBeltGrade);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
@@ -45,7 +49,14 @@ export function SettingsForm({
     setProfileError(null);
     setProfileSaved(false);
 
-    const result = await updateOwnProfile({ username, phone, address, avatarUrl, beltGrade });
+    const result = await updateOwnProfile({
+      username,
+      phone,
+      address,
+      avatarUrl,
+      signatureUrl,
+      beltGrade,
+    });
     setProfileSaving(false);
 
     if (result.ok) {
@@ -135,13 +146,27 @@ export function SettingsForm({
             className={inputClass}
           />
         </Field>
-        <Field label="Avatar Image URL (optional)">
-          <input
-            type="url"
+        <Field label="Avatar (optional)">
+          <PhotoUpload
             value={avatarUrl}
-            onChange={(e) => setAvatarUrl(e.target.value)}
-            placeholder="https://..."
-            className={inputClass}
+            onChange={setAvatarUrl}
+            itemLabel="Avatar"
+            previewAlt="Avatar preview"
+            noValueLabel={"No avatar\nuploaded"}
+            previewClassName="object-cover"
+            helpText="Shown on your profile around the site. Under 2MB."
+          />
+        </Field>
+
+        <Field label="Signature (optional)">
+          <PhotoUpload
+            value={signatureUrl}
+            onChange={setSignatureUrl}
+            itemLabel="Signature"
+            previewAlt="Signature preview"
+            noValueLabel={"No signature\nuploaded"}
+            previewClassName="object-contain bg-white p-1"
+            helpText="Shown on official documents you issue on the club's behalf, e.g. dues receipts. Plain background, under 2MB."
           />
         </Field>
 

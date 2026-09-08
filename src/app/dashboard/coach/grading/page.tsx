@@ -47,6 +47,7 @@ export default async function CoachGradingPage() {
           date: gradingEvents.date,
           location: gradingEvents.location,
           status: gradingEvents.status,
+          fee: gradingEvents.fee,
           candidates: sql<number>`count(${gradingCandidates.id})`.mapWith(Number),
         })
         .from(gradingEvents)
@@ -98,7 +99,7 @@ export default async function CoachGradingPage() {
 
   const openGradingsList = gradings
     .filter((g) => g.status === "scheduled" || g.status === "in_progress")
-    .map((g) => ({ id: g.id, title: g.title }));
+    .map((g) => ({ id: g.id, title: g.title, fee: g.fee }));
 
   const gradingRequestRows = await Promise.all(
     pendingRequests.map(async (r) => {
