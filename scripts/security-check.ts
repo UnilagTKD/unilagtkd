@@ -9,6 +9,12 @@ import { contentSecurityPolicy } from "../src/lib/security-headers";
 import { canReviewProfileChange } from "../src/lib/verification-permissions";
 import { excoPermissions, canManageReceiptSignature } from "../src/lib/exco";
 import { domainRedirect } from "../src/lib/domains";
+import { failureCode } from "../src/lib/failure-code";
+
+assert.equal(failureCode({ cause: { code: "EAI_AGAIN", message: "private connection URL" } }), "EAI_AGAIN");
+assert.equal(failureCode({ code: "secret-token", message: "private reset URL" }), "UNKNOWN");
+const cyclicError: { cause?: unknown } = {}; cyclicError.cause = cyclicError;
+assert.equal(failureCode(cyclicError), "UNKNOWN");
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 assert.equal(isRasterImage(png), true);
