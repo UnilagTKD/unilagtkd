@@ -52,6 +52,8 @@ export function sessionCounts(
 }
 
 export type AttendanceStats = {
+  periodId?: string;
+  periodName?: string;
   /** Sessions marked for the member that actually count. */
   total: number;
   present: number;
@@ -101,7 +103,7 @@ export function describeAttendance(stats: AttendanceStats): string {
   if (stats.total === 0) {
     return stats.excludedOnLeave > 0
       ? "no countable sessions yet - all of them fall inside approved leave"
-      : `no sessions since joining on ${stats.countsFrom}`;
+      : `no sessions counted since ${stats.countsFrom}${stats.periodName ? ` in ${stats.periodName}` : ""}`;
   }
   const base = `${stats.pct}% (${stats.present}/${stats.total})`;
   return isProvisional(stats) ? `${base}, provisional` : base;

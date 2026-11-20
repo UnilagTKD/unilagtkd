@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { cloudinaryConfigured, uploadToCloudinary } from "@/lib/cloudinary-upload";
+import { uploadImage } from "@/app/upload-actions";
+import { IMAGE_MIME_TYPES } from "@/lib/validation/image";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 
@@ -14,6 +15,7 @@ export function PhotoUpload({
   helpText = "Passport-style photo, white background, under 2MB.",
   previewClassName = "object-cover",
   itemLabel = "Photo",
+  privateUpload = false,
 }: {
   value: string;
   onChange: (dataUrl: string) => void;
@@ -23,6 +25,7 @@ export function PhotoUpload({
   helpText?: string;
   previewClassName?: string;
   itemLabel?: string;
+  privateUpload?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -33,41 +36,34 @@ export function PhotoUpload({
 
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      setLocalError("Please choose an image file.");
+    if (!IMAGE_MIME_TYPES.includes(file.type)) {
+      setLocalError("Please choose a PNG, JPEG, or WebP image.");
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      setLocalError("Image must be smaller than 2MB.");
+    if (file.size > (privateUpload ? 1024 * 1024 : MAX_FILE_SIZE)) {
+      setLocalError(`Image must be smaller than ${privateUpload ? "1MB" : "2MB"}.`);
       return;
     }
 
-    // Cloudinary when configured, so images are hosted properly instead of
-    // stored as base64 text. Falls back to a data URL otherwise, so the form
-    // still works before Cloudinary is set up.
-    if (cloudinaryConfigured) {
-      setUploading(true);
-      const result = await uploadToCloudinary(file);
-      setUploading(false);
-
-      if (result.ok) {
-        onChange(result.url);
-      } else {
-        setLocalError(result.error);
+    setUploading(true);
+    const form = new FormData();
+    form.set("file", file);
+    try {
+      if (privateUpload) {
+        const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("Could not read receipt")); reader.readAsDataURL(file); });
+        onChange(data);
+        return;
       }
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      onChange(String(reader.result));
-    };
-    reader.readAsDataURL(file);
+      const result = await uploadImage(form);
+      if (result.ok) onChange(result.url);
+      else setLocalError(result.error);
+    } catch { setLocalError("Upload failed. Please try again."); }
+    finally { setUploading(false); }
   }
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex flex-wrap items-center gap-4">
       <div className="flex h-24 w-24 flex-none items-center justify-center overflow-hidden rounded-lg border border-zinc-300 bg-zinc-50">
         {value ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -78,11 +74,11 @@ export function PhotoUpload({
           </span>
         )}
       </div>
-      <div>
+      <div className="min-w-0 flex-1 basis-40">
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/png,image/jpeg,image/webp"
           onChange={(e) => handleFile(e.target.files?.[0])}
           className="hidden"
         />

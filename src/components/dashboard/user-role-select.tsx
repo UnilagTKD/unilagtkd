@@ -31,6 +31,11 @@ export function UserRoleSelect({
       <option value="alumni">alumni</option>
       <option value="coach">coach</option>
       <option value="exco">exco</option>
+      {currentRole === "admin" && (
+        <option value="admin" disabled>
+          admin
+        </option>
+      )}
     </select>
   );
 }

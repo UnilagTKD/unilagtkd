@@ -1,13 +1,13 @@
-// Belt grading (promotion testing) rules for the club.
+// Belt grading reference data for the club.
 //
 // Everything in this file is pure: no database, no session, no React. The
 // server actions in the dashboard own persistence and authorisation; this
-// module owns the *rules* - what rank comes next, who may be entered for a
-// grading, and how a panel's scores turn into a promotion.
+// module owns the rank ladder and recommendations shown to coaches and
+// members. Coaches record marks and make the final grading decision.
 //
-// The belt ladder and the attendance gate come from the club's Official Club
-// Manual & Operational Handbook (2026 Issue); the Dan time-in-grade intervals
-// follow Kukkiwon practice.
+// The belt ladder comes from the club's Official Club Manual & Operational
+// Handbook (2026 Issue); the Dan time-in-grade references follow Kukkiwon
+// practice.
 
 import { ATTENDANCE_THRESHOLDS } from "@/lib/constants";
 import { dayNumber } from "@/lib/dates";
@@ -15,11 +15,6 @@ import { dayNumber } from "@/lib/dates";
 // ---------------------------------------------------------------------------
 // The rank ladder
 // ---------------------------------------------------------------------------
-
-// Which weighting profile a grading uses. Beginners are not tested on sparring
-// or board breaking at all; the emphasis shifts from basics toward application
-// as the candidate climbs.
-export type GradingBand = "beginner" | "intermediate" | "advanced" | "dan";
 
 export type Rank = {
   /** Stable identifier stored on grading records. Never renamed. */
@@ -31,17 +26,15 @@ export type Rank = {
   /** Geup/Dan grade within that belt. */
   grade: string;
   /**
-   * The Poomsae a candidate must perform to be promoted *into* this rank.
+   * The suggested Poomsae for a candidate being promoted *into* this rank.
    * Names line up with POOMSAE_VIDEOS in `@/lib/constants`, so the dashboard
    * can point a candidate at the reference footage for their test. The entry
    * rank has none - nothing is graded to reach White Belt.
    */
   requiredPoomsae: string | null;
-  /** Weighting profile applied when this rank is the *target* of a grading. */
-  band: GradingBand;
   /**
-   * Minimum months a member must hold this rank before being entered for the
-   * next one. Colour belts follow the club's own intervals; Dan grades follow
+   * Suggested months a member holds this rank before the next one. Colour
+   * belts follow the club's intervals; Dan grades follow
    * the Kukkiwon rule of one year per Dan held (1st -> 2nd is 12 months,
    * 2nd -> 3rd is 24, and so on).
    */
@@ -60,24 +53,24 @@ export type Rank = {
 // promotions for the eight Taegeuk forms, which is why the Poomsae below line
 // up one-to-one with the rungs.
 export const RANKS: readonly Rank[] = [
-  { id: "10th-geup", order: 0, belt: "White Belt", grade: "10th Geup", requiredPoomsae: null, band: "beginner", minMonthsBeforeNext: 3, externallyCertified: false },
-  { id: "8th-geup", order: 1, belt: "Yellow Belt", grade: "8th Geup", requiredPoomsae: "Taegeuk Il Jang", band: "beginner", minMonthsBeforeNext: 3, externallyCertified: false },
-  { id: "7th-geup", order: 2, belt: "Yellow Belt", grade: "7th Geup", requiredPoomsae: "Taegeuk Ee Jang", band: "beginner", minMonthsBeforeNext: 3, externallyCertified: false },
-  { id: "6th-geup", order: 3, belt: "Blue Belt", grade: "6th Geup", requiredPoomsae: "Taegeuk Sam Jang", band: "intermediate", minMonthsBeforeNext: 4, externallyCertified: false },
-  { id: "5th-geup", order: 4, belt: "Blue Belt", grade: "5th Geup", requiredPoomsae: "Taegeuk Sa Jang", band: "intermediate", minMonthsBeforeNext: 4, externallyCertified: false },
-  { id: "4th-geup", order: 5, belt: "Brown Belt", grade: "4th Geup", requiredPoomsae: "Taegeuk Oh Jang", band: "intermediate", minMonthsBeforeNext: 4, externallyCertified: false },
-  { id: "3rd-geup", order: 6, belt: "Brown Belt", grade: "3rd Geup", requiredPoomsae: "Taegeuk Yuk Jang", band: "intermediate", minMonthsBeforeNext: 4, externallyCertified: false },
-  { id: "2nd-geup", order: 7, belt: "Red Belt", grade: "2nd Geup", requiredPoomsae: "Taegeuk Chil Jang", band: "advanced", minMonthsBeforeNext: 6, externallyCertified: false },
-  { id: "1st-geup", order: 8, belt: "Red Belt", grade: "1st Geup", requiredPoomsae: "Taegeuk Pal Jang", band: "advanced", minMonthsBeforeNext: 6, externallyCertified: false },
-  { id: "1st-dan", order: 9, belt: "Black Belt", grade: "1st Dan", requiredPoomsae: "Koryo", band: "dan", minMonthsBeforeNext: 12, externallyCertified: true },
-  { id: "2nd-dan", order: 10, belt: "Black Belt", grade: "2nd Dan", requiredPoomsae: "Keumgang", band: "dan", minMonthsBeforeNext: 24, externallyCertified: true },
-  { id: "3rd-dan", order: 11, belt: "Black Belt", grade: "3rd Dan", requiredPoomsae: "Taebaek", band: "dan", minMonthsBeforeNext: 36, externallyCertified: true },
-  { id: "4th-dan", order: 12, belt: "Black Belt", grade: "4th Dan", requiredPoomsae: "Pyongwon", band: "dan", minMonthsBeforeNext: 48, externallyCertified: true },
-  { id: "5th-dan", order: 13, belt: "Black Belt", grade: "5th Dan", requiredPoomsae: "Sipjin", band: "dan", minMonthsBeforeNext: 60, externallyCertified: true },
-  { id: "6th-dan", order: 14, belt: "Black Belt", grade: "6th Dan", requiredPoomsae: "Jitae", band: "dan", minMonthsBeforeNext: 72, externallyCertified: true },
-  { id: "7th-dan", order: 15, belt: "Black Belt", grade: "7th Dan", requiredPoomsae: "Chonkwon", band: "dan", minMonthsBeforeNext: 84, externallyCertified: true },
-  { id: "8th-dan", order: 16, belt: "Black Belt", grade: "8th Dan", requiredPoomsae: "Hansu", band: "dan", minMonthsBeforeNext: 96, externallyCertified: true },
-  { id: "9th-dan", order: 17, belt: "Black Belt", grade: "9th Dan", requiredPoomsae: "Ilyeo", band: "dan", minMonthsBeforeNext: 0, externallyCertified: true },
+  { id: "10th-geup", order: 0, belt: "White Belt", grade: "10th Geup", requiredPoomsae: null, minMonthsBeforeNext: 3, externallyCertified: false },
+  { id: "8th-geup", order: 1, belt: "Yellow Belt", grade: "8th Geup", requiredPoomsae: "Taegeuk Il Jang", minMonthsBeforeNext: 3, externallyCertified: false },
+  { id: "7th-geup", order: 2, belt: "Yellow Belt", grade: "7th Geup", requiredPoomsae: "Taegeuk Ee Jang", minMonthsBeforeNext: 3, externallyCertified: false },
+  { id: "6th-geup", order: 3, belt: "Blue Belt", grade: "6th Geup", requiredPoomsae: "Taegeuk Sam Jang", minMonthsBeforeNext: 4, externallyCertified: false },
+  { id: "5th-geup", order: 4, belt: "Blue Belt", grade: "5th Geup", requiredPoomsae: "Taegeuk Sa Jang", minMonthsBeforeNext: 4, externallyCertified: false },
+  { id: "4th-geup", order: 5, belt: "Brown Belt", grade: "4th Geup", requiredPoomsae: "Taegeuk Oh Jang", minMonthsBeforeNext: 4, externallyCertified: false },
+  { id: "3rd-geup", order: 6, belt: "Brown Belt", grade: "3rd Geup", requiredPoomsae: "Taegeuk Yuk Jang", minMonthsBeforeNext: 4, externallyCertified: false },
+  { id: "2nd-geup", order: 7, belt: "Red Belt", grade: "2nd Geup", requiredPoomsae: "Taegeuk Chil Jang", minMonthsBeforeNext: 6, externallyCertified: false },
+  { id: "1st-geup", order: 8, belt: "Red Belt", grade: "1st Geup", requiredPoomsae: "Taegeuk Pal Jang", minMonthsBeforeNext: 6, externallyCertified: false },
+  { id: "1st-dan", order: 9, belt: "Black Belt", grade: "1st Dan", requiredPoomsae: "Koryo", minMonthsBeforeNext: 12, externallyCertified: true },
+  { id: "2nd-dan", order: 10, belt: "Black Belt", grade: "2nd Dan", requiredPoomsae: "Keumgang", minMonthsBeforeNext: 24, externallyCertified: true },
+  { id: "3rd-dan", order: 11, belt: "Black Belt", grade: "3rd Dan", requiredPoomsae: "Taebaek", minMonthsBeforeNext: 36, externallyCertified: true },
+  { id: "4th-dan", order: 12, belt: "Black Belt", grade: "4th Dan", requiredPoomsae: "Pyongwon", minMonthsBeforeNext: 48, externallyCertified: true },
+  { id: "5th-dan", order: 13, belt: "Black Belt", grade: "5th Dan", requiredPoomsae: "Sipjin", minMonthsBeforeNext: 60, externallyCertified: true },
+  { id: "6th-dan", order: 14, belt: "Black Belt", grade: "6th Dan", requiredPoomsae: "Jitae", minMonthsBeforeNext: 72, externallyCertified: true },
+  { id: "7th-dan", order: 15, belt: "Black Belt", grade: "7th Dan", requiredPoomsae: "Chonkwon", minMonthsBeforeNext: 84, externallyCertified: true },
+  { id: "8th-dan", order: 16, belt: "Black Belt", grade: "8th Dan", requiredPoomsae: "Hansu", minMonthsBeforeNext: 96, externallyCertified: true },
+  { id: "9th-dan", order: 17, belt: "Black Belt", grade: "9th Dan", requiredPoomsae: "Ilyeo", minMonthsBeforeNext: 0, externallyCertified: true },
 ] as const;
 
 /** The rank every member starts at when nothing else is on file. */
@@ -122,19 +115,18 @@ export type Belt = {
   name: string;
   /** Rank ids inside this belt, lowest grade first. */
   grades: string[];
-  band: GradingBand;
-  /** Months a member must hold this belt before grading out of it. */
+  /** Suggested months a member holds this belt before grading out of it. */
   minMonthsBeforeNext: number;
   /** Dan grades are certified by Kukkiwon/NTF rather than by the club. */
   externallyCertified: boolean;
 };
 
 export const BELTS: readonly Belt[] = [
-  { id: "white", order: 0, name: "White Belt", grades: ["10th-geup"], band: "beginner", minMonthsBeforeNext: 3, externallyCertified: false },
-  { id: "yellow", order: 1, name: "Yellow Belt", grades: ["8th-geup", "7th-geup"], band: "beginner", minMonthsBeforeNext: 6, externallyCertified: false },
-  { id: "blue", order: 2, name: "Blue Belt", grades: ["6th-geup", "5th-geup"], band: "intermediate", minMonthsBeforeNext: 8, externallyCertified: false },
-  { id: "brown", order: 3, name: "Brown Belt", grades: ["4th-geup", "3rd-geup"], band: "intermediate", minMonthsBeforeNext: 8, externallyCertified: false },
-  { id: "red", order: 4, name: "Red Belt", grades: ["2nd-geup", "1st-geup"], band: "advanced", minMonthsBeforeNext: 12, externallyCertified: false },
+  { id: "white", order: 0, name: "White Belt", grades: ["10th-geup"], minMonthsBeforeNext: 3, externallyCertified: false },
+  { id: "yellow", order: 1, name: "Yellow Belt", grades: ["8th-geup", "7th-geup"], minMonthsBeforeNext: 6, externallyCertified: false },
+  { id: "blue", order: 2, name: "Blue Belt", grades: ["6th-geup", "5th-geup"], minMonthsBeforeNext: 8, externallyCertified: false },
+  { id: "brown", order: 3, name: "Brown Belt", grades: ["4th-geup", "3rd-geup"], minMonthsBeforeNext: 8, externallyCertified: false },
+  { id: "red", order: 4, name: "Red Belt", grades: ["2nd-geup", "1st-geup"], minMonthsBeforeNext: 12, externallyCertified: false },
   {
     id: "black",
     order: 5,
@@ -143,7 +135,6 @@ export const BELTS: readonly Belt[] = [
       "1st-dan", "2nd-dan", "3rd-dan", "4th-dan",
       "5th-dan", "6th-dan", "7th-dan", "8th-dan", "9th-dan",
     ],
-    band: "dan",
     minMonthsBeforeNext: 0,
     externallyCertified: true,
   },
@@ -308,44 +299,12 @@ export type GradingCriterionId = (typeof GRADING_CRITERIA)[number]["id"];
 
 export type CriterionScores = Partial<Record<GradingCriterionId, number | null>>;
 
-type WeightProfile = Partial<Record<GradingCriterionId, number>>;
-
-// Each profile sums to 100. A criterion absent from a profile is not examined
-// at that band: beginners are not asked to spar or break boards, and Dan
-// candidates are past being marked on isolated basics.
-const WEIGHTS_BY_BAND: Record<GradingBand, WeightProfile> = {
-  beginner: { basics: 40, poomsae: 35, hoshinsul: 10, theory: 15 },
-  intermediate: { basics: 25, poomsae: 30, kyorugi: 20, kyukpa: 10, hoshinsul: 5, theory: 10 },
-  advanced: { basics: 15, poomsae: 30, kyorugi: 25, kyukpa: 15, hoshinsul: 10, theory: 5 },
-  dan: { basics: 10, poomsae: 30, kyorugi: 25, kyukpa: 15, hoshinsul: 15, theory: 5 },
-};
-
 /** Every criterion is marked out of this. */
 export const MAX_CRITERION_SCORE = 10;
 
-/**
- * No candidate passes with a mark below this on any examined criterion,
- * whatever the weighted total says. Without a floor, strong theory and basics
- * can carry someone who cannot perform their form - the weighting is meant to
- * rank performances, not to let one be substituted for another.
- */
-export const MINIMUM_CRITERION_SCORE = 5;
-
-export const PASS_MARK = 70;
-export const DISTINCTION_MARK = 85;
-
-/** The weighting used when `target` is the belt being graded to. */
-export function weightsFor(target: Belt): WeightProfile {
-  return WEIGHTS_BY_BAND[target.band];
-}
-
-/** The criteria examined for a promotion into `target`, in display order. */
-export function criteriaFor(target: Belt) {
-  const weights = weightsFor(target);
-  return GRADING_CRITERIA.filter((c) => (weights[c.id] ?? 0) > 0).map((c) => ({
-    ...c,
-    weight: weights[c.id]!,
-  }));
+/** Criteria available for a promotion; coaches decide which to use. */
+export function criteriaFor() {
+  return GRADING_CRITERIA;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,16 +313,10 @@ export function criteriaFor(target: Belt) {
 
 // A grading moves a member by belt. A single takes the next belt colour; a
 // double takes two, skipping a colour outright. A double is not the same test
-// twice: the candidate performs every form across both belts, and the bar moves
-// up, because skipping a belt means nobody will ever examine the one passed
-// over.
+// twice: the candidate performs every form across both belts.
 
 /** The most belts a single grading may cover. */
 export const MAX_PROMOTION_STEPS = 2;
-
-export const DOUBLE_PASS_MARK = 80;
-export const DOUBLE_DISTINCTION_MARK = 90;
-export const DOUBLE_MINIMUM_CRITERION_SCORE = 6;
 
 export type Promotion = {
   /** The candidate's rank going in, which fixes their belt and time-in-grade. */
@@ -377,16 +330,13 @@ export type Promotion = {
   requiredPoomsae: string[];
   /** The grades the panel may award inside `to`, lowest first. */
   awardable: Rank[];
-  passMark: number;
-  distinctionMark: number;
-  minCriterionScore: number;
   /** Combined time-in-grade for every belt covered. */
   minMonthsRequired: number;
 };
 
 /**
- * Describes a promotion from `from` into belt `to`, including the raised
- * standard a double carries. Throws when the jump is not permitted - callers
+ * Describes a promotion from `from` into belt `to`, including the forms a
+ * double grading covers. Throws when the jump is not permitted - callers
  * pick targets from `promotionTargets`, which only offers permitted ones.
  */
 export function buildPromotion(from: Rank, to: Belt): Promotion {
@@ -410,9 +360,6 @@ export function buildPromotion(from: Rank, to: Belt): Promotion {
     isDouble,
     requiredPoomsae: covered.flatMap(beltPoomsae),
     awardable: awardableRanks(to),
-    passMark: isDouble ? DOUBLE_PASS_MARK : PASS_MARK,
-    distinctionMark: isDouble ? DOUBLE_DISTINCTION_MARK : DISTINCTION_MARK,
-    minCriterionScore: isDouble ? DOUBLE_MINIMUM_CRITERION_SCORE : MINIMUM_CRITERION_SCORE,
     // Time-in-grade accumulates across every belt skipped: a candidate cannot
     // shortcut two belts' worth of mat time by taking them in one sitting.
     minMonthsRequired: BELTS.slice(fromBelt.order, to.order).reduce(
@@ -431,7 +378,7 @@ export function buildPromotion(from: Rank, to: Belt): Promotion {
 export function canPromoteTo(from: Rank, to: Belt): boolean {
   const steps = to.order - beltOf(from).order;
   if (steps < 1 || steps > MAX_PROMOTION_STEPS) return false;
-  if (steps > 1 && to.band === "dan") return false;
+  if (steps > 1 && to.id === "black") return false;
   return true;
 }
 
@@ -448,156 +395,6 @@ export function promotionTargets(from: Rank): Belt[] {
   return BELTS.slice(fromBelt.order + 1, fromBelt.order + 1 + MAX_PROMOTION_STEPS).filter((to) =>
     canPromoteTo(from, to)
   );
-}
-
-/**
- * The grade the panel would normally award for this result: the top of the belt
- * for a distinction, the bottom for a plain pass. Only ever a starting point -
- * the examiners pick the final grade themselves.
- */
-export function suggestedAward(promotion: Promotion, outcome: string): Rank | null {
-  if (!isPromoting(outcome)) return null;
-  const grades = promotion.awardable;
-  if (grades.length === 0) return null;
-  return outcome === "distinction" ? grades[grades.length - 1] : grades[0];
-}
-
-// ---------------------------------------------------------------------------
-// Turning scores into a result
-// ---------------------------------------------------------------------------
-
-export type GradingOutcome = "pending" | "distinction" | "pass" | "fail";
-
-export type ScoredCriterion = {
-  id: GradingCriterionId;
-  label: string;
-  weight: number;
-  score: number | null;
-  /** The criterion's contribution to the total, out of `weight`. */
-  contribution: number;
-  belowMinimum: boolean;
-};
-
-export type GradingAssessment = {
-  promotion: Promotion;
-  breakdown: ScoredCriterion[];
-  /** Weighted total out of 100, to one decimal place. */
-  total: number;
-  /** False while any examined criterion is still unmarked. */
-  complete: boolean;
-  outcome: GradingOutcome;
-  /** Criteria that fell below the mandatory minimum, by label. */
-  shortfalls: string[];
-  /** Plain-English reason for the outcome, shown to panel and candidate. */
-  summary: string;
-};
-
-/**
- * Applies the panel's marks to a promotion.
- *
- * The result stays `pending` until every examined criterion carries a mark.
- * Once complete, any mark below the promotion's minimum fails the candidate
- * outright; otherwise the weighted total decides against its pass and
- * distinction marks. A double grading carries the raised bar throughout - see
- * `buildPromotion`.
- *
- * A failed double does *not* fall back to a single promotion. The candidate
- * was examined against a higher standard on two ranks' material; passing them
- * to the intermediate rank would be awarding a grade nobody tested them for.
- * The panel re-enters them for the single step at the next grading.
- */
-export function assessGrading(
-  promotion: Promotion,
-  scores: CriterionScores
-): GradingAssessment {
-  const criteria = criteriaFor(promotion.to);
-
-  const breakdown: ScoredCriterion[] = criteria.map((c) => {
-    const raw = scores[c.id];
-    const score = typeof raw === "number" && Number.isFinite(raw) ? clampScore(raw) : null;
-    return {
-      id: c.id,
-      label: c.label,
-      weight: c.weight,
-      score,
-      contribution: score === null ? 0 : round1((score / MAX_CRITERION_SCORE) * c.weight),
-      belowMinimum: score !== null && score < promotion.minCriterionScore,
-    };
-  });
-
-  const total = round1(breakdown.reduce((sum, c) => sum + c.contribution, 0));
-  const complete = breakdown.every((c) => c.score !== null);
-  const shortfalls = breakdown.filter((c) => c.belowMinimum).map((c) => c.label);
-  const target = promotion.to.name;
-  const kind = promotion.isDouble ? "double grading" : "grading";
-
-  if (!complete) {
-    return {
-      promotion,
-      breakdown,
-      total,
-      complete: false,
-      outcome: "pending",
-      shortfalls,
-      summary: "Not every component has been marked yet.",
-    };
-  }
-
-  if (shortfalls.length > 0) {
-    return {
-      promotion,
-      breakdown,
-      total,
-      complete: true,
-      outcome: "fail",
-      shortfalls,
-      summary: `Below the mandatory minimum of ${promotion.minCriterionScore}/${MAX_CRITERION_SCORE} on ${shortfalls.join(", ")}, so the ${total}% total does not carry a promotion.`,
-    };
-  }
-
-  if (total >= promotion.distinctionMark) {
-    return {
-      promotion,
-      breakdown,
-      total,
-      complete: true,
-      outcome: "distinction",
-      shortfalls,
-      summary: `Passed with distinction at ${total}%. Promoted to ${target}${promotion.isDouble ? ", a double grading" : ""}.`,
-    };
-  }
-
-  if (total >= promotion.passMark) {
-    return {
-      promotion,
-      breakdown,
-      total,
-      complete: true,
-      outcome: "pass",
-      shortfalls,
-      summary: `Passed at ${total}%. Promoted to ${target}${promotion.isDouble ? ", a double grading" : ""}.`,
-    };
-  }
-
-  return {
-    promotion,
-    breakdown,
-    total,
-    complete: true,
-    outcome: "fail",
-    shortfalls,
-    summary: promotion.isDouble
-      ? `Scored ${total}%, below the ${promotion.passMark}% required for a double grading. Not promoted - the panel may enter the candidate for ${BELTS[beltOf(promotion.from).order + 1].name} at the next grading.`
-      : `Scored ${total}%, below the ${promotion.passMark}% pass mark. The candidate re-tests at the next ${kind}.`,
-  };
-}
-
-function clampScore(value: number): number {
-  return Math.max(0, Math.min(MAX_CRITERION_SCORE, Math.round(value)));
-}
-
-function round1(value: number): number {
-  return Math.round(value * 10) / 10;
 }
 
 // ---------------------------------------------------------------------------
@@ -620,8 +417,7 @@ export type EligibilityInput = {
   currentRank: Rank;
   /**
    * The belt being graded to. Defaults to the next belt; pass the belt two up
-   * to test a double grading, which is held to the stiffer requirements in
-   * `buildPromotion` plus a varsity-level attendance record.
+   * to view guidance for a double grading.
    */
   target?: Belt;
   status: "active" | "inactive";
@@ -652,12 +448,10 @@ export type EligibilityResult = {
 };
 
 /**
- * Decides whether a member may be entered for a grading.
+ * Summarizes how a member compares with the club's suggested grading criteria.
  *
- * Returns every blocker rather than stopping at the first, so a coach sees the
- * whole picture at once instead of clearing one gate only to discover another.
- * A blocked candidate can still be entered when a coach records an override
- * reason - see `registerGradingCandidate` in the dashboard actions.
+ * Returns every eligibility warning so coaches see the full picture. These
+ * recommendations do not prevent a coach from entering or passing a candidate.
  */
 export function checkEligibility(input: EligibilityInput): EligibilityResult {
   const asOf = input.asOf ?? new Date();
@@ -688,7 +482,7 @@ export function checkEligibility(input: EligibilityInput): EligibilityResult {
         {
           code: "target_not_permitted",
           message:
-            target.band === "dan" && target.order - beltOf(input.currentRank).order > 1
+            target.id === "black" && target.order - beltOf(input.currentRank).order > 1
               ? `${target.name} cannot be double graded: Dan ranks are certified individually by Kukkiwon/NTF.`
               : `${target.name} is not a permitted target from ${rankLabel(input.currentRank)}.`,
         },
@@ -930,6 +724,13 @@ export const GRADING_STATUS_STYLES: Record<string, string> = {
   published: "bg-green-100 text-green-800",
   cancelled: "bg-zinc-100 text-zinc-500",
 };
+
+export const GRADING_DECISIONS = ["pending", "distinction", "pass", "fail"] as const;
+export type GradingDecision = (typeof GRADING_DECISIONS)[number];
+
+export function isGradingDecision(value: unknown): value is GradingDecision {
+  return GRADING_DECISIONS.some((decision) => decision === value);
+}
 
 export const OUTCOME_LABELS: Record<string, string> = {
   pending: "Not yet marked",

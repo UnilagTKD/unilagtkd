@@ -1,12 +1,17 @@
+import { expireTrainingSessions } from "@/lib/training-session-data";
+import { sessionExpiresAt } from "@/lib/training-session";
+import { SessionExpiryRefresh } from "@/components/dashboard/session-expiry-refresh";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { db } from "@/db";
-import { trainingSessions, attendance } from "@/db/schema";
+import { trainingSessions, attendance, attendancePeriodSnapshots } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { rosterForSession } from "@/lib/attendance-data";
 import { AttendanceForm } from "./attendance-form";
 import { EndSessionButton } from "./end-session-button";
+import { getAttendancePeriod } from "@/lib/attendance-periods";
+import { recordIdFromSlug } from "@/lib/record-slug";
 
 export default async function AttendanceMarkingPage({
   params,
@@ -14,7 +19,10 @@ export default async function AttendanceMarkingPage({
   params: Promise<{ sessionId: string }>;
 }) {
   await requireRole(["coach"]);
-  const { sessionId } = await params;
+  const { sessionId: slug } = await params;
+  const sessionId = recordIdFromSlug(slug);
+  if (!sessionId) notFound();
+  await expireTrainingSessions(sessionId);
 
   const [session] = await db
     .select()
@@ -23,6 +31,11 @@ export default async function AttendanceMarkingPage({
     .limit(1);
 
   if (!session) notFound();
+  const period = await getAttendancePeriod(session.periodId);
+  if (period?.closedAt) {
+    const snapshots = await db.select().from(attendancePeriodSnapshots).where(eq(attendancePeriodSnapshots.periodId, period.id));
+    return <div className="max-w-3xl space-y-5"><Link href="/dashboard/coach/attendance" className="text-sm text-brand-blue">&larr; Attendance periods</Link><h1 className="text-2xl font-bold">{session.title}</h1><p className="text-sm text-zinc-500">{session.date} · {period.name} · Archived, read only</p><ul className="divide-y rounded-xl border bg-white p-4 text-sm">{snapshots.map(row => { const mark = row.history.find(item => item.sessionId === session.id); return <li key={row.id} className="flex flex-wrap justify-between gap-2 py-3"><span>{row.name}</span><span>{!mark ? "Not recorded" : mark.beforeJoining ? "Excluded: before joining" : mark.onLeave ? "Excluded: approved leave" : mark.present ? "Present" : "Absent"}</span></li>; })}</ul></div>;
+  }
 
   const [roster, existing] = await Promise.all([
     rosterForSession(sessionId),
@@ -60,44 +73,12 @@ export default async function AttendanceMarkingPage({
         </p>
       </div>
 
-      {ended ? (
-        <div className="rounded-xl border border-black/10 bg-white p-6">
-          <p className="text-xs text-zinc-500">
-            This session has ended. Attendance is locked and shown here read-only.
-          </p>
-          <ul className="mt-4 divide-y divide-black/5">
-            {markable.map((r) => (
-              <li key={r.id} className="flex items-center justify-between py-3">
-                <span className="text-sm font-medium text-brand-black">{r.name}</span>
-                <span
-                  className={
-                    existingMap.get(r.id)
-                      ? "rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700"
-                      : "rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600"
-                  }
-                >
-                  {existingMap.get(r.id) ? "Present" : "Absent"}
-                </span>
-              </li>
-            ))}
-            {markable.length === 0 && (
-              <li className="py-2 text-sm text-zinc-500">No approved students on this register.</li>
-            )}
-          </ul>
-        </div>
-      ) : (
-        <>
-          <AttendanceForm
-            sessionId={sessionId}
-            roster={markable.map((r) => ({
-              id: r.id,
-              name: r.name,
-              present: existingMap.get(r.id) ?? false,
-            }))}
-          />
-          <EndSessionButton sessionId={sessionId} />
-        </>
-      )}
+      <p className="rounded-lg bg-zinc-100 p-3 text-sm text-zinc-600">
+        {ended ? "Member check-in has closed. You can still record or correct attendance below." : "Member check-in closes automatically 24 hours after the scheduled start. You can record attendance at any time."}
+      </p>
+      {!ended && <SessionExpiryRefresh deadline={sessionExpiresAt(session).toISOString()} />}
+      <AttendanceForm sessionId={sessionId} roster={markable.map((r) => ({ id: r.id, name: r.name, present: existingMap.get(r.id) ?? false }))} />
+      {!ended && <EndSessionButton sessionId={sessionId} />}
 
       {excluded.length > 0 && (
         <div className="rounded-xl border border-black/10 bg-zinc-50 p-5">

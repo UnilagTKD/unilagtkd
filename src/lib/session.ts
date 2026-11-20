@@ -6,6 +6,8 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { excoPermissions, type ExcoPermission } from "@/lib/exco";
 import type { UserRole } from "@/types/next-auth";
+import { rateLimit } from "@/lib/shared-rate-limit";
+import { securityLog } from "@/lib/security-log";
 
 export async function getSession() {
   return auth();
@@ -58,6 +60,15 @@ export async function getExcoContext() {
 }
 
 /** Server-action guard: throws unless the caller's office grants `permission`. */
+export async function requireAdmissionPaymentReviewer() {
+  const session = await auth();
+  if (session?.user.role === "admin") {
+    if (!(await rateLimit(`office-action:${session.user.id}`, 120, 60_000)).allowed) throw new Error("Too many requests. Please try again later.");
+    return session.user;
+  }
+  return requireExcoPermission("dues:manage");
+}
+
 export async function requireExcoPermission(permission: ExcoPermission) {
   const session = await auth();
 
@@ -72,8 +83,10 @@ export async function requireExcoPermission(permission: ExcoPermission) {
     .limit(1);
 
   if (!excoPermissions(session.user.role, row?.excoPosition ?? null).includes(permission)) {
+    securityLog("office_authorization_denied", { actorId: session.user.id });
     throw new Error("Not authorized");
   }
+  if (!(await rateLimit(`office-action:${session.user.id}`, 120, 60_000)).allowed) throw new Error("Too many requests. Please try again later.");
 
   return session.user;
 }

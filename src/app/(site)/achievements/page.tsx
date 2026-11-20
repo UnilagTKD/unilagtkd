@@ -1,17 +1,15 @@
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
-import { db } from "@/db";
-import { achievements } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { getAchievements } from "@/lib/public-content";
+
+
 import { MEDAL_STYLES } from "@/lib/constants";
 import { Reveal } from "@/components/reveal";
 
-export const metadata: Metadata = { title: "Achievements" };
+export const metadata: Metadata = publicMetadata("/achievements");
 
 export default async function AchievementsPage() {
-  const results = await db
-    .select()
-    .from(achievements)
-    .orderBy(desc(achievements.competitionDate));
+  const results = await getAchievements();
 
   const medalCounts = results.reduce(
     (acc, r) => {
@@ -22,7 +20,7 @@ export default async function AchievementsPage() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
       <span className="text-sm font-semibold uppercase tracking-widest text-brand-red">
         Track Record
       </span>

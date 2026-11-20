@@ -1,3 +1,4 @@
+import { recordSlug } from "@/lib/record-slug";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { eq, desc } from "drizzle-orm";
@@ -9,14 +10,14 @@ import { naira } from "@/lib/currency";
 import { ClaimPaymentButton } from "@/components/dashboard/claim-payment-button";
 import { ReportPaymentButton } from "@/components/dashboard/report-payment-button";
 import { CopyButton } from "@/components/copy-button";
-import { MEMBER_ROLES } from "@/lib/roles";
+import { MEMBER_PAGE_ROLES } from "@/lib/roles";
 import type { UserRole } from "@/types/next-auth";
 
 export default async function PaymentsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
   // Exco officers pay dues like every other member, so they belong here too.
-  const allowed: UserRole[] = [...MEMBER_ROLES];
+  const allowed: UserRole[] = [...MEMBER_PAGE_ROLES];
   if (!allowed.includes(session.user.role)) {
     redirect(`/dashboard/${session.user.role}`);
   }
@@ -79,6 +80,7 @@ export default async function PaymentsPage() {
                   <div>
                     {d.periodLabel}: {naira.format(Number(d.amount))}
                   </div>
+                  {!d.paid && !d.paymentClaimed && d.paymentDeclineReason && <div className="mt-1 text-sm text-red-700">Claim declined: {d.paymentDeclineReason}. You can submit a corrected claim.</div>}
                   {d.paid && d.paidAt && (
                     <div className="text-xs text-zinc-400">
                       Paid {new Date(d.paidAt).toLocaleDateString()}
@@ -96,7 +98,7 @@ export default async function PaymentsPage() {
                     </span>
                     {d.receiptNo && (
                       <Link
-                        href={`/dashboard/receipts/${d.id}`}
+                        href={`/dashboard/receipts/${recordSlug(d.periodLabel, d.id)}`}
                         className="text-xs font-medium text-brand-blue hover:underline"
                       >
                         View receipt

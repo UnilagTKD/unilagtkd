@@ -2,6 +2,7 @@ import { LEAVE_REASON_LABELS, type LeaveReason } from "@/lib/exco";
 import { LeaveRequestReview } from "./leave-request-review";
 
 export type LeaveRequestRow = {
+  userId?: string;
   id: string;
   memberName: string;
   reasonCategory: LeaveReason;
@@ -25,7 +26,7 @@ function formatRange(startDate: string, endDate: string) {
   return start === end ? start : `${start} - ${end}`;
 }
 
-export function LeaveRequestsPanel({ requests }: { requests: LeaveRequestRow[] }) {
+export function LeaveRequestsPanel({ requests, reviewerId }: { requests: LeaveRequestRow[]; reviewerId?: string }) {
   const pending = requests.filter((r) => r.status === "pending");
   const settled = requests.filter((r) => r.status !== "pending");
 
@@ -52,7 +53,7 @@ export function LeaveRequestsPanel({ requests }: { requests: LeaveRequestRow[] }
               {formatRange(r.startDate, r.endDate)}
             </div>
             <p className="mt-2 text-sm text-zinc-700">{r.details}</p>
-            <LeaveRequestReview requestId={r.id} />
+            {r.userId === reviewerId && reviewerId ? <p className="mt-3 text-sm text-zinc-600">Another coach must review your own leave request.</p> : <LeaveRequestReview requestId={r.id} />}
           </li>
         ))}
         {pending.length === 0 && (
@@ -89,6 +90,38 @@ export function LeaveRequestsPanel({ requests }: { requests: LeaveRequestRow[] }
           </ul>
         </>
       )}
+    </div>
+  );
+}
+
+export function ApprovedLeaveList({
+  requests,
+}: {
+  requests: Pick<
+    LeaveRequestRow,
+    "id" | "memberName" | "reasonCategory" | "startDate" | "endDate"
+  >[];
+}) {
+  return (
+    <div className="rounded-xl border border-black/10 bg-white p-6">
+      <h2 className="font-semibold text-brand-black">
+        Approved Leave ({requests.length})
+      </h2>
+      <ul className="mt-4 divide-y divide-black/5">
+        {requests.map((request) => (
+          <li key={request.id} className="py-3 text-sm">
+            <span className="font-medium text-brand-black">{request.memberName}</span>
+            <span className="text-zinc-500">
+              {" "}
+              - {LEAVE_REASON_LABELS[request.reasonCategory]},{" "}
+              {formatRange(request.startDate, request.endDate)}
+            </span>
+          </li>
+        ))}
+        {requests.length === 0 && (
+          <li className="py-2 text-sm text-zinc-500">No approved leave requests.</li>
+        )}
+      </ul>
     </div>
   );
 }

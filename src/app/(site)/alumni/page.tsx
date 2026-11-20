@@ -1,8 +1,10 @@
+import { publicMetadata } from "@/lib/seo";
+import { portalHref } from "@/lib/domains";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Reveal } from "@/components/reveal";
 
-export const metadata: Metadata = { title: "Alumni" };
+export const metadata: Metadata = publicMetadata("/alumni");
 
 const BENEFITS = [
   "Continue training and grading with the club as an Alumni-Member.",
@@ -13,7 +15,7 @@ const BENEFITS = [
 
 export default function AlumniPage() {
   return (
-    <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
       <span className="text-sm font-semibold uppercase tracking-widest text-brand-blue">
         Once a Member, Always a Member
       </span>
@@ -79,7 +81,7 @@ export default function AlumniPage() {
             UNILAG Taekwondo Club community.
           </p>
           <Link
-            href="/register"
+            href={portalHref("/register")}
             className="mt-6 inline-block rounded-full bg-brand-red px-6 py-3 text-sm font-semibold text-white hover:bg-brand-red-dark"
           >
             Register as Alumni-Member

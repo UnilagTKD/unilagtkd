@@ -1,4 +1,6 @@
 "use client";
+import { recordSlug } from "@/lib/record-slug";
+
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -26,7 +28,7 @@ export function CreateGradingForm() {
         fee: String(form.get("fee") || ""),
       });
       setOpen(false);
-      router.push(`/dashboard/coach/grading/${id}`);
+      router.push(`/dashboard/coach/grading/${recordSlug(String(form.get("title")), id)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the grading");
     } finally {

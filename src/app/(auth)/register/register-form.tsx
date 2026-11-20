@@ -1,13 +1,17 @@
 "use client";
 
+import { siteHref } from "@/lib/domains";
 import { useState } from "react";
-import { useForm, type FieldErrors, type Path } from "react-hook-form";
+import { useForm, useWatch, type FieldErrors, type Path } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { applicationSchema, type ApplicationInput } from "@/lib/validation/application";
+import { BELT_SYSTEM, BANK_DETAILS } from "@/lib/constants";
 import { Field, inputClass } from "@/components/form/fields";
 import { PhotoUpload } from "@/components/form/photo-upload";
 import { submitApplication } from "./actions";
+import { BotProtection, type BotProtectionInput } from "@/components/form/bot-protection";
+import { academicInfoError, type MembershipCategory } from "@/lib/validation/academic";
 
 type SubCommittee = { id: string; name: string; description: string | null };
 
@@ -16,7 +20,7 @@ const STEPS = [
   "Medical History",
   "Experience & Commitments",
   "Liability Waiver",
-  "Review & Submit",
+  "Semester Dues & Submit",
 ] as const;
 
 const STEP_FIELDS: Path<ApplicationInput>[][] = [
@@ -24,6 +28,8 @@ const STEP_FIELDS: Path<ApplicationInput>[][] = [
     "photoData",
     "membershipCategory",
     "fullName",
+    "surname",
+    "username",
     "department",
     "faculty",
     "gender",
@@ -47,26 +53,36 @@ const STEP_FIELDS: Path<ApplicationInput>[][] = [
     "waiverSignatureDate",
     "guardianSignature",
   ],
-  [],
+  ["paymentReceiptData", "paymentReference"],
 ];
 
-export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] }) {
+export function RegisterForm({ subCommittees, semester }: { subCommittees: SubCommittee[]; semester: { label: string; amount: string } }) {
   const [step, setStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [protection, setProtection] = useState<BotProtectionInput>({ website: "", token: "" });
+  const [protectionVersion, setProtectionVersion] = useState(0);
+  const [trackingLink, setTrackingLink] = useState("");
 
   const {
     register,
     handleSubmit,
     trigger,
-    watch,
+    control,
     setValue,
+    getValues,
+    setError,
     formState: { errors },
   } = useForm<ApplicationInput>({
     resolver: zodResolver(applicationSchema),
     defaultValues: {
       photoData: "",
+      username: "",
+      paymentReceiptData: "",
+      paymentReference: "",
+      semesterLabel: semester.label,
+      department: "", faculty: "", matricOrStaffNo: "", levelYear: "", graduationYear: "", institution: "", occupation: "",
       priorTraining: false,
       waiverRiskAck: false,
       waiverReleaseAck: false,
@@ -76,13 +92,18 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
     },
   });
 
-  const priorTraining = watch("priorTraining");
-  const isMinor = watch("isMinor");
-  const photoData = watch("photoData");
+  const priorTraining = useWatch({ control, name: "priorTraining" });
+  const isMinor = useWatch({ control, name: "isMinor" });
+  const photoData = useWatch({ control, name: "photoData" });
+  const paymentReceiptData = useWatch({ control, name: "paymentReceiptData" });
+  const category = useWatch({ control, name: "membershipCategory" });
+  const studentCategory = category === "undergraduate" || category === "postgraduate";
+  const registrationGroup = studentCategory ? "student" : category;
 
   async function next() {
     const fields = STEP_FIELDS[step];
     const valid = fields.length === 0 || (await trigger(fields));
+    if (valid && step === 0) { const error = academicInfoError(getValues()); if (error) { setError("membershipCategory", { message: error }); return; } }
     if (valid) setStep((s) => Math.min(s + 1, STEPS.length - 1));
   }
 
@@ -93,13 +114,15 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
   async function onSubmit(data: ApplicationInput) {
     setIsSubmitting(true);
     setSubmitError(null);
-    const result = await submitApplication(data);
+    const result = await submitApplication(data, protection);
     setIsSubmitting(false);
 
     if (result.ok) {
+      setTrackingLink(result.trackingLink);
       setSubmitted(true);
     } else {
       setSubmitError(result.error);
+      setProtectionVersion((version) => version + 1);
     }
   }
 
@@ -109,12 +132,13 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
         <h2 className="text-xl font-bold text-brand-black">Application Submitted</h2>
         <p className="mt-3 text-zinc-600">
           Thank you. Your membership application and waiver have been
-          received and are pending review by the Executive Committee.
+          received. The treasurer must confirm your semester payment before admin can approve your account.
           You&apos;ll be contacted via the email/phone you provided once a
           decision has been made.
         </p>
+        {trackingLink && <Link href={trackingLink} className="mt-4 block font-semibold text-brand-blue underline">Track application or replace a declined receipt</Link>}
         <Link
-          href="/"
+          href={siteHref("/")}
           className="mt-6 inline-block rounded-full bg-brand-red px-6 py-3 text-sm font-semibold text-white hover:bg-brand-red-dark"
         >
           Back to Home
@@ -152,6 +176,8 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
               1. Membership Category &amp; Personal / Academic Profile
             </h2>
 
+            <fieldset className="rounded-lg border border-blue-100 bg-blue-50 p-4"><legend className="px-1 text-sm font-semibold">Register as</legend><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[{key:"student",label:"Student"},{key:"alumni",label:"Alumni"},{key:"non_student",label:"Non-student"},{key:"staff",label:"Staff"}].map(item=><button key={item.key} type="button" aria-pressed={registrationGroup===item.key} onClick={()=>setValue("membershipCategory",(item.key==="student"?"undergraduate":item.key) as MembershipCategory,{shouldValidate:true})} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${registrationGroup===item.key?"border-brand-blue bg-brand-blue text-white":"border-zinc-200 bg-white"}`}>{item.label}</button>)}</div>{errors.membershipCategory&&<p className="mt-2 text-xs text-brand-red">{errors.membershipCategory.message}</p>}</fieldset>
+
             <Field label="Passport Photograph (white background)">
               <PhotoUpload
                 value={photoData}
@@ -160,44 +186,51 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
               />
             </Field>
 
-            <Field label="Membership Category" error={errors.membershipCategory?.message}>
+            {studentCategory && <Field label="Student programme" error={errors.membershipCategory?.message}>
               <select {...register("membershipCategory")} className={inputClass} defaultValue="">
                 <option value="" disabled>
                   Select category
                 </option>
                 <option value="undergraduate">Student-Member (Undergraduate)</option>
                 <option value="postgraduate">Student-Member (Postgraduate)</option>
-                <option value="alumni">Alumni-Member</option>
-                <option value="non_student">Non-Student Member</option>
               </select>
-            </Field>
+            </Field>}
 
             <Field label="Full Name (Surname First)" error={errors.fullName?.message}>
               <input {...register("fullName")} className={inputClass} />
             </Field>
+            <Field label="Surname" error={errors.surname?.message}>
+              <input {...register("surname")} autoComplete="family-name" maxLength={100} className={inputClass} />
+              <p className="mt-1 text-xs text-zinc-500">After approval, your initial password is your surname in lowercase. You can change it in Settings.</p>
+            </Field>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Matric / Staff Number" error={errors.matricOrStaffNo?.message}>
+            {category && category !== "non_student" && <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={category === "staff" ? "Staff number" : category === "alumni" ? "Former matriculation number" : "Matriculation number"} error={errors.matricOrStaffNo?.message}>
                 <input {...register("matricOrStaffNo")} className={inputClass} />
               </Field>
-              <Field label="UTME / JAMB Reg. No" error={errors.utmeJambNo?.message}>
+              {studentCategory && <Field label="UTME / JAMB Reg. No" error={errors.utmeJambNo?.message}>
                 <input {...register("utmeJambNo")} className={inputClass} />
-              </Field>
-            </div>
+              </Field>}
+            </div>}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Department" error={errors.department?.message}>
+            {category && category !== "non_student" && <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={category === "staff" ? "Department / Unit" : "Department / Course"} error={errors.department?.message}>
                 <input {...register("department")} className={inputClass} />
               </Field>
-              <Field label="Faculty / Institution" error={errors.faculty?.message}>
+              {category !== "staff" && <Field label="Faculty" error={errors.faculty?.message}>
                 <input {...register("faculty")} className={inputClass} />
-              </Field>
+              </Field>}
+            </div>}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {category === "alumni" && <Field label="Graduation year" error={errors.graduationYear?.message}><input {...register("graduationYear")} inputMode="numeric" maxLength={4} placeholder="e.g. 2026" className={inputClass}/></Field>}
+              <Field label={category === "staff" ? "Institution" : "Institution / Organisation (optional)"} error={errors.institution?.message}><input {...register("institution")} maxLength={200} className={inputClass}/></Field>
+              {(category === "non_student" || category === "alumni") && <Field label={category === "non_student" ? "Occupation / Current activity" : "Occupation (optional)"} error={errors.occupation?.message}><input {...register("occupation")} maxLength={150} className={inputClass}/></Field>}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="Current Level / Year" error={errors.levelYear?.message}>
+              {studentCategory && <Field label="Current Level / Year" error={errors.levelYear?.message}>
                 <input {...register("levelYear")} className={inputClass} placeholder="e.g. 300" />
-              </Field>
+              </Field>}
               <Field label="Gender" error={errors.gender?.message}>
                 <select {...register("gender")} className={inputClass} defaultValue="">
                   <option value="" disabled>
@@ -215,6 +248,9 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Phone Number (WhatsApp/Telegram)" error={errors.phone?.message}>
                 <input {...register("phone")} className={inputClass} />
+              </Field>
+              <Field label="Username (optional)" error={errors.username?.message}>
+                <input {...register("username")} autoComplete="username" minLength={3} maxLength={30} placeholder="e.g. club_member" className={inputClass} />
               </Field>
               <Field label="Email Address" error={errors.email?.message}>
                 <input type="email" {...register("email")} className={inputClass} />
@@ -300,7 +336,18 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
             {priorTraining && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Current Belt / Grade" error={errors.beltGrade?.message}>
-                  <input {...register("beltGrade")} className={inputClass} />
+                  <select
+                    {...register("beltGrade")}
+                    className={inputClass}
+                    defaultValue=""
+                  >
+                    <option value="">Select belt colour</option>
+                    {BELT_SYSTEM.map(({ belt }) => (
+                      <option key={belt} value={belt}>
+                        {belt}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Affiliated Club / Academy" error={errors.affiliatedClub?.message}>
                   <input {...register("affiliatedClub")} className={inputClass} />
@@ -457,7 +504,14 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
 
         {step === 4 && (
           <div className="space-y-4">
-            <h2 className="font-semibold text-brand-black">5. Review &amp; Submit</h2>
+            <h2 className="font-semibold text-brand-black">5. Semester Dues &amp; Submit</h2>
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm">
+              <p className="font-semibold">{semester.label}: ₦{Number(semester.amount).toLocaleString("en-NG")}</p>
+              <p className="mt-2">{BANK_DETAILS.bankName} · {BANK_DETAILS.accountNumber}</p><p>{BANK_DETAILS.accountName}</p>
+              <p className="mt-2">Pay the semester dues using your full name as the narration. Upload your bank transfer receipt below. Uploading a receipt is a payment claim; the treasurer will verify the actual transfer.</p>
+            </div>
+            <Field label="Payment reference" error={errors.paymentReference?.message}><input {...register("paymentReference")} className={inputClass} maxLength={200} /></Field>
+            <PhotoUpload privateUpload value={paymentReceiptData || ""} onChange={value => setValue("paymentReceiptData", value, { shouldValidate: true })} error={errors.paymentReceiptData?.message} itemLabel="Payment receipt" previewAlt="Payment receipt preview" noValueLabel="No receipt selected" helpText="PNG, JPEG, or WebP receipt image under 1MB. Stored privately for verification." previewClassName="object-contain" />
             <p className="text-sm text-zinc-600">
               By submitting, you certify that all information provided is
               true, accurate, and complete, and pledge to uphold the five
@@ -469,6 +523,7 @@ export function RegisterForm({ subCommittees }: { subCommittees: SubCommittee[] 
               <FormErrorsSummary errors={errors} />
             )}
             {submitError && <p className="text-sm text-brand-red">{submitError}</p>}
+            <BotProtection key={protectionVersion} action="register" onChange={setProtection} />
           </div>
         )}
 

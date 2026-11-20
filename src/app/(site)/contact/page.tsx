@@ -1,12 +1,14 @@
+import { publicMetadata } from "@/lib/seo";
+import { portalHref } from "@/lib/domains";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ContactForm } from "./contact-form";
 
-export const metadata: Metadata = { title: "Contact" };
+export const metadata: Metadata = publicMetadata("/contact");
 
 export default function ContactPage() {
   return (
-    <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
       <span className="text-sm font-semibold uppercase tracking-widest text-brand-red">
         Get In Touch
       </span>
@@ -14,7 +16,7 @@ export default function ContactPage() {
       <p className="mt-4 max-w-2xl text-zinc-600">
         Have a question about training, membership, or partnering with the
         club? Reach out to us, or start your{" "}
-        <Link href="/register" className="text-brand-red hover:underline">
+        <Link href={portalHref("/register")} className="text-brand-red hover:underline">
           membership application
         </Link>
         .
@@ -22,7 +24,7 @@ export default function ContactPage() {
 
       <div className="mt-10 rounded-xl bg-zinc-50 p-6 text-sm text-zinc-600">
         For membership enquiries, please use the{" "}
-        <Link href="/register" className="font-medium text-brand-red hover:underline">
+        <Link href={portalHref("/register")} className="font-medium text-brand-red hover:underline">
           Membership Registration
         </Link>{" "}
         form instead, it routes your application directly to the Executive

@@ -6,7 +6,7 @@ import { ExcoOfficeSection } from "./office-section";
  * route keeps it reachable on its own for links that point straight at it.
  */
 export default async function ExcoDashboardPage() {
-  await requireRole(["exco"]);
+  await requireRole(["exco", "admin"]);
 
   return (
     <div className="max-w-4xl">

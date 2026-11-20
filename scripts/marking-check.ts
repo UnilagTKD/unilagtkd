@@ -10,6 +10,7 @@ import {
   leaveRequests,
 } from "../src/db/schema";
 import { rosterForSession } from "../src/lib/attendance-data";
+import { getActiveAttendancePeriod } from "../src/lib/attendance-periods";
 
 let failures = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -66,12 +67,14 @@ async function member(name: string, createdAt: string) {
 }
 
 async function main() {
+  const period = await getActiveAttendancePeriod();
+  if (!period) throw new Error("Open a monitoring period in an isolated test database first.");
   await cleanup();
 
   // Session on 2026-07-15.
   const [session] = await db
     .insert(trainingSessions)
-    .values({ title: MARKER, date: "2026-07-15" })
+    .values({ title: MARKER, date: "2026-07-15", periodId: period.id })
     .returning({ id: trainingSessions.id });
 
   const veteran = await member("veteran", "2026-01-10T09:00:00Z");

@@ -51,7 +51,7 @@ function BenefitIcon({ icon }: { icon: string }) {
   );
 }
 
-export function AuthSplit({ callbackUrl }: { callbackUrl?: string }) {
+export function AuthSplit() {
   const router = useRouter();
   const [transitioning, setTransitioning] = useState(false);
 
@@ -81,7 +81,7 @@ export function AuthSplit({ callbackUrl }: { callbackUrl?: string }) {
             </p>
           </div>
           <div className="animate-fade-in-up animate-delay-1">
-            <LoginForm callbackUrl={callbackUrl} />
+            <LoginForm />
           </div>
         </div>
       </div>
@@ -126,7 +126,7 @@ export function AuthSplit({ callbackUrl }: { callbackUrl?: string }) {
             </h2>
             <p className="mt-3 text-sm text-zinc-200">
               Apply for membership today and get a dashboard of your own the
-              moment the Executive Committee approves your application.
+              moment an administrator approves your application.
             </p>
             <ul className="mt-7 space-y-4 text-sm">
               {SIGNUP_BENEFITS.map((b, i) => (

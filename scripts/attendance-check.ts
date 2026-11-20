@@ -10,6 +10,7 @@ import {
   leaveRequests,
 } from "../src/db/schema";
 import { attendanceStatsFor, attendanceHistoryFor } from "../src/lib/attendance-data";
+import { getActiveAttendancePeriod } from "../src/lib/attendance-periods";
 
 let failures = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -46,6 +47,8 @@ async function cleanup() {
 }
 
 async function main() {
+  const period = await getActiveAttendancePeriod();
+  if (!period) throw new Error("Open a monitoring period in an isolated test database first.");
   await cleanup();
 
   // Member joined 2026-06-01.
@@ -101,7 +104,7 @@ async function main() {
   for (const [date] of sessionDates) {
     const [s] = await db
       .insert(trainingSessions)
-      .values({ title: MARKER, date })
+      .values({ title: MARKER, date, periodId: period.id })
       .returning({ id: trainingSessions.id });
     created.push(s.id);
   }

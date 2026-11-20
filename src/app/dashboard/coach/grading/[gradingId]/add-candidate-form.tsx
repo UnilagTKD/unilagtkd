@@ -37,8 +37,6 @@ export function AddCandidateForm({
 
   const member = members.find((m) => m.id === memberId);
   const option = member?.options.find((o) => o.targetBeltId === targetBeltId);
-  // An override is only demanded when the chosen promotion is actually blocked.
-  const needsOverride = option !== undefined && !option.eligible;
 
   function pickMember(id: string) {
     setMemberId(id);
@@ -112,7 +110,7 @@ export function AddCandidateForm({
               member.options.map((o) => (
                 <option key={o.targetBeltId} value={o.targetBeltId}>
                   {o.targetLabel} · {o.isDouble ? "double" : "single"}
-                  {o.eligible ? "" : " · blocked"}
+                  {o.eligible ? "" : " · guidance"}
                 </option>
               ))
             ) : (
@@ -131,33 +129,34 @@ export function AddCandidateForm({
 
       {option && !option.eligible && (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-xs text-yellow-900">
-          <div className="font-semibold">
-            {member?.name} does not meet the requirements for {option.targetLabel}:
-          </div>
+          <div className="font-semibold">Eligibility guidance for {member?.name}:</div>
           <ul className="mt-1 list-inside list-disc">
             {option.blockers.map((b, i) => (
               <li key={i}>{b}</li>
             ))}
           </ul>
+          <p className="mt-2">
+            These are recommendations only. They do not prevent a coach from entering or
+            promoting the candidate.
+          </p>
         </div>
       )}
 
-      {option?.eligible && option.isDouble && (
+      {option?.isDouble && (
         <p className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800">
           A double grading to {option.targetLabel}: it skips a belt outright, so the candidate
-          performs every form across both belts and is held to the raised pass mark and
-          per-component minimum. A failed double is not promoted at all - they re-enter for
-          the single belt next time. The panel picks the geup within the belt when marking.
+          performs the forms across both belts. The panel makes the final decision and picks
+          the geup within the target belt when marking.
         </p>
       )}
 
-      {needsOverride && (
-        <Field label="Override reason (required to enter a blocked candidate)">
+      {option && !option.eligible && (
+        <Field label="Coach note on eligibility (optional)">
           <textarea
             value={overrideReason}
             onChange={(e) => setOverrideReason(e.target.value)}
             rows={2}
-            placeholder="e.g. Head Coach discretion - graded at a partner club during the semester break."
+            placeholder="Optional context for the panel."
             className={inputClass}
           />
         </Field>
@@ -167,12 +166,10 @@ export function AddCandidateForm({
 
       <button
         type="submit"
-        disabled={
-          submitting || !memberId || !targetBeltId || (needsOverride && !overrideReason.trim())
-        }
+        disabled={submitting || !memberId || !targetBeltId}
         className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
       >
-        {submitting ? "Entering..." : needsOverride ? "Enter with Override" : "Enter Candidate"}
+        {submitting ? "Entering..." : "Enter Candidate"}
       </button>
     </form>
   );

@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
-// Gallery/insights image URLs are entered freely by the General Secretary, and
+// Fallback policy for assets/redirects. Page responses receive a strict,
+// request-specific script nonce from proxy.ts instead of unsafe-inline.
+// Gallery/insights image URLs are entered by the General Secretary, and
 // the membership form's passport photo is a base64 data: URI - so img-src has
 // to stay broad. Everything else is locked to what the app actually embeds:
 // the YouTube Poomsae player and the Google Maps embed on the contact page.
@@ -12,8 +14,8 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https: data:",
   "font-src 'self' data:",
-  "connect-src 'self' https://api.cloudinary.com",
-  "frame-src https://www.youtube.com https://www.google.com",
+  "connect-src 'self' https://challenges.cloudflare.com",
+  "frame-src https://www.youtube.com https://www.google.com https://challenges.cloudflare.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -21,6 +23,19 @@ const CSP = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  productionBrowserSourceMaps: false,
+  images: {
+    formats: ["image/webp"],
+    minimumCacheTTL: 3600,
+    remotePatterns: [
+      { protocol: "https", hostname: "res.cloudinary.com" },
+      { protocol: "https", hostname: "picsum.photos" },
+      { protocol: "https", hostname: "fastly.picsum.photos" },
+      { protocol: "https", hostname: "images.unsplash.com" },
+    ],
+  },
+  experimental: { serverActions: { bodySizeLimit: "5mb" } },
   async headers() {
     return [
       {
@@ -31,7 +46,10 @@ const nextConfig: NextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+          { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
         ],
       },
     ];

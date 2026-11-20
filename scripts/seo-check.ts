@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { PUBLIC_PAGES, publicMetadata, publicUrl, serializeStructuredData, seoDescription, socialImage } from '../src/lib/seo';
+const untrusted = { headline: '</script><script>alert(1)</script>', excerpt: 'Line\u2028next\u2029end' };
+const serialized = serializeStructuredData(untrusted);
+assert.ok(!serialized.includes('<'));
+assert.deepEqual(JSON.parse(serialized), untrusted);
+assert.equal(seoDescription('<b>Hello</b>   world'), 'Hello world');
+assert.equal(seoDescription('a'.repeat(200)).length, 160);
+assert.throws(() => publicUrl('https://attacker.invalid/'));
+assert.equal(socialImage('data:image/png;base64,AAAA'), publicUrl('/opengraph-image'));
+assert.equal(socialImage('javascript:alert(1)'), publicUrl('/opengraph-image'));
+assert.equal(socialImage('/media/gallery/example?v=123'), publicUrl('/media/gallery/example?v=123'));
+assert.equal(new Set(PUBLIC_PAGES.map(page => publicMetadata(page.path).description)).size, PUBLIC_PAGES.length);
+assert.equal(publicMetadata('/gallery?page=2').alternates?.canonical, publicUrl('/gallery?page=2'));
+console.log('ok safe structured data, canonical origin, descriptions, image fallbacks, pagination metadata');

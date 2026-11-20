@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getReceiptDraft, issueReceipt } from "../actions";
+import { getReceiptDraft, issueReceipt, declinePaymentClaim } from "../actions";
 
 type Draft = Awaited<ReturnType<typeof getReceiptDraft>>;
 
@@ -16,6 +16,7 @@ export function IssueReceiptButton({ duesId }: { duesId: string }) {
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [receiptNo, setReceiptNo] = useState("");
+  const [declineReason, setDeclineReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<string | null>(null);
@@ -37,15 +38,18 @@ export function IssueReceiptButton({ duesId }: { duesId: string }) {
   async function confirm() {
     setBusy(true);
     setError(null);
-    const result = await issueReceipt(duesId, receiptNo);
-    setBusy(false);
-    if (result.ok) {
-      setIssued(result.receiptNo);
-      setDraft(null);
-      router.refresh();
-    } else {
-      setError(result.error);
-    }
+    try {
+      const result = await issueReceipt(duesId, receiptNo, draft?.paymentClaimedAt ? new Date(draft.paymentClaimedAt).toISOString() : null);
+      if (result.ok) { setIssued(result.receiptNo); setDraft(null); router.refresh(); }
+      else setError(result.error);
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not issue receipt."); }
+    finally { setBusy(false); }
+  }
+  async function decline() {
+    setBusy(true); setError(null);
+    try { await declinePaymentClaim(duesId, declineReason); setDraft(null); setDeclineReason(""); router.refresh(); }
+    catch (err) { setError(err instanceof Error ? err.message : "Could not decline claim."); }
+    finally { setBusy(false); }
   }
 
   if (issued) {
@@ -58,14 +62,14 @@ export function IssueReceiptButton({ duesId }: { duesId: string }) {
 
   if (!draft) {
     return (
-      <span className="flex items-center gap-2">
+      <span className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={busy}
           onClick={open}
           className="rounded-full bg-brand-red px-3 py-0.5 text-xs font-semibold text-white hover:bg-brand-red-dark disabled:opacity-60"
         >
-          {busy ? "Opening..." : "Verify & issue receipt"}
+          {busy ? "Opening..." : "Review payment"}
         </button>
         {error && <span className="text-xs text-brand-red">{error}</span>}
       </span>
@@ -136,14 +140,14 @@ export function IssueReceiptButton({ duesId }: { duesId: string }) {
 
       {error && <p className="mt-2 text-xs text-brand-red">{error}</p>}
 
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
           disabled={busy || !receiptNo.trim() || !draft.hasSignature}
           onClick={confirm}
           className="rounded-full bg-brand-red px-3 py-1 text-xs font-semibold text-white disabled:opacity-60"
         >
-          {busy ? "Issuing..." : "Confirm & issue"}
+          {busy ? "Issuing..." : draft.paid ? "Issue receipt" : "Confirm & issue"}
         </button>
         <button
           type="button"
@@ -156,6 +160,13 @@ export function IssueReceiptButton({ duesId }: { duesId: string }) {
           Cancel
         </button>
       </div>
+      {draft.paymentClaimed && !draft.paid && <div className="mt-4 space-y-2 border-t border-zinc-200 pt-3">
+        <label className="block text-sm font-medium">Reason for declining
+          <textarea aria-label="Reason for declining" value={declineReason} onChange={(event) => setDeclineReason(event.target.value)} maxLength={1000} rows={2} className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2" />
+        </label>
+        <p className="text-xs text-zinc-500">The charge will remain unpaid. The member can correct and resubmit their claim.</p>
+        <button type="button" disabled={busy || declineReason.trim().length < 3} onClick={decline} className="rounded-full border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 disabled:opacity-60">Decline claim</button>
+      </div>}
     </div>
   );
 }

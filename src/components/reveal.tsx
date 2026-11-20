@@ -1,6 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+
+const pending = new Map<Element, number>();
+let observer: IntersectionObserver | undefined;
+function revealObserver() {
+  return observer ??= new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const delay = pending.get(entry.target) ?? 0;
+      pending.delete(entry.target);
+      observer?.unobserve(entry.target);
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        entry.target.animate([
+          { opacity: 0, transform: "translateY(16px)" },
+          { opacity: 1, transform: "translateY(0)" },
+        ], { duration: 450, delay, easing: "ease-out", fill: "backwards" });
+      }
+    }
+  }, { threshold: 0.05 });
+}
 
 export function Reveal({
   children,
@@ -12,33 +31,20 @@ export function Reveal({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const node = ref.current;
-    if (!node) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1, rootMargin: "0px 0px -40px 0px" }
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+    if (!node || !("IntersectionObserver" in window) || !("animate" in node) || window.matchMedia("(prefers-reduced-motion: reduce)").matches || node.getBoundingClientRect().top < window.innerHeight) return;
+    pending.set(node, delay);
+    const shared = revealObserver();
+    shared.observe(node);
+    return () => { shared.unobserve(node); pending.delete(node); };
+  }, [delay]);
 
   return (
     <div
       ref={ref}
-      style={{ transitionDelay: visible ? `${delay}ms` : "0ms" }}
-      className={`transition-all duration-700 ease-out ${
-        visible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
-      } ${className ?? ""}`}
+      className={className}
     >
       {children}
     </div>

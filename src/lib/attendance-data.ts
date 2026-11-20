@@ -8,10 +8,13 @@ import {
   attendance,
   trainingSessions,
   leaveRequests,
+  attendancePeriodSnapshots,
+  type PeriodAttendanceRecord,
 } from "@/db/schema";
 import { buildStats, type AttendanceStats } from "@/lib/attendance";
 import type { UserRole } from "@/types/next-auth";
 import { MEMBER_ROLES } from "@/lib/roles";
+import { getAttendancePeriod, periodSessionFilter, type AttendanceDatabase } from "@/lib/attendance-periods";
 
 // The single place that knows how to count a member's attendance.
 //
@@ -71,24 +74,31 @@ const STATS_COLUMNS = {
 };
 
 /** Attendance for one member. */
-export async function attendanceStatsFor(userId: string): Promise<AttendanceStats | null> {
-  const [row] = await db
+export async function attendanceStatsFor(userId: string, periodId?: string, client: AttendanceDatabase = db): Promise<AttendanceStats | null> {
+  const period = await getAttendancePeriod(periodId, client);
+  if (period?.closedAt) {
+    const [snapshot] = await client.select({ stats: attendancePeriodSnapshots.stats }).from(attendancePeriodSnapshots)
+      .where(and(eq(attendancePeriodSnapshots.periodId, period.id), eq(attendancePeriodSnapshots.userId, userId))).limit(1);
+    return snapshot?.stats ?? null;
+  }
+  const [row] = await client
     .select(STATS_COLUMNS)
     .from(users)
     .leftJoin(attendance, eq(attendance.userId, users.id))
-    .leftJoin(trainingSessions, eq(trainingSessions.id, attendance.sessionId))
+    .leftJoin(trainingSessions, and(eq(trainingSessions.id, attendance.sessionId), periodSessionFilter(period?.id)))
     .leftJoin(leaveRequests, LEAVE_JOIN)
     .where(eq(users.id, userId))
     .groupBy(users.id);
 
   if (!row) return null;
-  return buildStats(
+  const stats = buildStats(
     row.present,
     row.total,
-    row.countsFrom,
+    period && period.startsOn > row.countsFrom ? period.startsOn : row.countsFrom,
     row.excludedBeforeJoining,
     row.excludedOnLeave
   );
+  return { ...stats, periodId: period?.id, periodName: period?.name };
 }
 
 /**
@@ -96,13 +106,18 @@ export async function attendanceStatsFor(userId: string): Promise<AttendanceStat
  * roster page does not fan out per member.
  */
 export async function attendanceStatsByUser(
-  roles: UserRole[] = [...MEMBER_ROLES]
+  roles: UserRole[] = [...MEMBER_ROLES], periodId?: string, client: AttendanceDatabase = db
 ): Promise<Map<string, AttendanceStats>> {
-  const rows = await db
+  const period = await getAttendancePeriod(periodId, client);
+  if (period?.closedAt) {
+    const rows = await client.select().from(attendancePeriodSnapshots).where(and(eq(attendancePeriodSnapshots.periodId, period.id), inArray(attendancePeriodSnapshots.role, roles)));
+    return new Map(rows.filter(row => row.userId).map(row => [row.userId!, row.stats]));
+  }
+  const rows = await client
     .select({ id: users.id, ...STATS_COLUMNS })
     .from(users)
     .leftJoin(attendance, eq(attendance.userId, users.id))
-    .leftJoin(trainingSessions, eq(trainingSessions.id, attendance.sessionId))
+    .leftJoin(trainingSessions, and(eq(trainingSessions.id, attendance.sessionId), periodSessionFilter(period?.id)))
     .leftJoin(leaveRequests, LEAVE_JOIN)
     .where(inArray(users.role, roles))
     .groupBy(users.id);
@@ -110,7 +125,7 @@ export async function attendanceStatsByUser(
   return new Map(
     rows.map((r) => [
       r.id,
-      buildStats(r.present, r.total, r.countsFrom, r.excludedBeforeJoining, r.excludedOnLeave),
+      { ...buildStats(r.present, r.total, period && period.startsOn > r.countsFrom ? period.startsOn : r.countsFrom, r.excludedBeforeJoining, r.excludedOnLeave), periodId: period?.id, periodName: period?.name },
     ])
   );
 }
@@ -129,9 +144,9 @@ export async function attendanceStatsByUser(
  */
 export async function rosterForSession(
   sessionId: string,
-  roles: UserRole[] = [...MEMBER_ROLES]
+  roles: UserRole[] = [...MEMBER_ROLES], client: AttendanceDatabase = db
 ) {
-  const rows = await db
+  const rows = await client
     .select({
       id: users.id,
       email: users.email,
@@ -174,9 +189,17 @@ export async function rosterForSession(
  * and why not. The member dashboard shows excluded sessions rather than hiding
  * them, so nobody thinks a night they were marked has gone missing.
  */
-export async function attendanceHistoryFor(userId: string) {
-  return db
+export async function attendanceHistoryFor(userId: string, periodId?: string, client: AttendanceDatabase = db): Promise<PeriodAttendanceRecord[]> {
+  const period = await getAttendancePeriod(periodId, client);
+  if (!period) return [];
+  if (period.closedAt) {
+    const [snapshot] = await client.select({ history: attendancePeriodSnapshots.history }).from(attendancePeriodSnapshots)
+      .where(and(eq(attendancePeriodSnapshots.periodId, period.id), eq(attendancePeriodSnapshots.userId, userId))).limit(1);
+    return snapshot?.history ?? [];
+  }
+  return client
     .select({
+      sessionId: trainingSessions.id,
       present: attendance.present,
       sessionTitle: trainingSessions.title,
       sessionDate: trainingSessions.date,
@@ -187,7 +210,18 @@ export async function attendanceHistoryFor(userId: string) {
     .innerJoin(users, eq(users.id, attendance.userId))
     .innerJoin(trainingSessions, eq(trainingSessions.id, attendance.sessionId))
     .leftJoin(leaveRequests, LEAVE_JOIN)
-    .where(eq(attendance.userId, userId))
-    .groupBy(attendance.id, trainingSessions.title, trainingSessions.date, attendance.present)
+    .where(and(eq(attendance.userId, userId), eq(trainingSessions.periodId, period.id)))
+    .groupBy(attendance.id, trainingSessions.id, trainingSessions.title, trainingSessions.date, attendance.present)
+    .orderBy(sql`${trainingSessions.date} desc`);
+}
+
+/** One query for the complete period register when freezing an archive. */
+export function attendanceRecordsForPeriod(periodId: string, client: AttendanceDatabase = db) {
+  return client.select({ userId: attendance.userId, sessionId: trainingSessions.id,
+    sessionTitle: trainingSessions.title, sessionDate: trainingSessions.date, present: attendance.present,
+    beforeJoining: sql<boolean>`bool_or(${BEFORE_JOINING})`, onLeave: sql<boolean>`bool_or(${ON_LEAVE})`,
+  }).from(attendance).innerJoin(users, eq(users.id, attendance.userId))
+    .innerJoin(trainingSessions, eq(trainingSessions.id, attendance.sessionId)).leftJoin(leaveRequests, LEAVE_JOIN)
+    .where(eq(trainingSessions.periodId, periodId)).groupBy(attendance.id, trainingSessions.id)
     .orderBy(sql`${trainingSessions.date} desc`);
 }

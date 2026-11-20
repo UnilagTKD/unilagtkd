@@ -1,7 +1,8 @@
 "use server";
+import { afterAccountAction } from "@/lib/action-notifications";
 
 import { revalidatePath } from "next/cache";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import {
@@ -9,29 +10,42 @@ import {
   gradingWindows,
   gradingEvents,
   gradingCandidates,
+  gradingExaminerInvites,
+  gradingExaminerMarks,
   gradingRequests,
   dues,
 } from "@/db/schema";
 import type { UserRole } from "@/types/next-auth";
 import {
   addDays,
-  assessGrading,
   buildPromotion,
   checkEligibility,
   criteriaFor,
   gradingWindowState,
   beltById,
+  isGradingDecision,
   isPromoting,
   rankById,
-  suggestedAward,
-  rankLabel,
   resolveRank,
   toDateInput,
   DEFAULT_WINDOW_DAYS,
+  MAX_CRITERION_SCORE,
   type CriterionScores,
+  type GradingDecision,
   type Rank,
 } from "@/lib/grading";
 import { getGradingWindow, loadEligibilityContext } from "@/lib/grading-data";
+import { sendExternalExaminerInviteEmail } from "@/lib/email";
+import { getBaseUrl } from "@/lib/site-url";
+import { recordSlug } from "@/lib/record-slug";
+import { rateLimit, requestRateLimit } from "@/lib/shared-rate-limit";
+import { validate, recordId, reviewNote } from "@/lib/validation/actions";
+import { z } from "zod";
+import {
+  examinerTokenExpiry,
+  generateExaminerToken,
+  hashToken,
+} from "@/lib/tokens";
 
 // Server actions are reachable by direct POST, not only through the dashboard,
 // so every one of them re-checks the caller's role. `@/lib/session` exports a
@@ -42,6 +56,7 @@ async function requireCoach() {
   if (!session?.user || !allowed.includes(session.user.role)) {
     throw new Error("Not authorized");
   }
+  if (!(await rateLimit(`grading-write:${session.user.id}`, 120, 60_000)).allowed) throw new Error("Too many requests. Please try again later.");
   return session.user;
 }
 
@@ -73,7 +88,7 @@ export async function openGradingWindow(data: {
   note?: string;
 }) {
   const user = await requireCoach();
-
+  data = validate(z.object({ opensAt: z.string().date().optional(), closesAt: z.string().date().optional(), note: reviewNote }).strict(), data);
   const today = new Date();
   const opensAt = data.opensAt || toDateInput(today);
   const closesAt = data.closesAt || addDays(new Date(opensAt), DEFAULT_WINDOW_DAYS);
@@ -144,7 +159,7 @@ function parseFee(raw?: string | null): string | null {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return null;
   const value = Number(trimmed);
-  if (!Number.isFinite(value) || value < 0) {
+  if (!/^\d{1,8}(?:\.\d{1,2})?$/.test(trimmed) || !Number.isFinite(value) || value < 0) {
     throw new Error("The grading fee must be a non-negative amount");
   }
   return value.toFixed(2);
@@ -227,7 +242,7 @@ export async function createGrading(data: {
 }) {
   const user = await requireCoach();
   await requireOpenWindow();
-
+  data = validate(z.object({ title: z.string().trim().min(1).max(255), date: z.string().date(), location: z.string().trim().max(255).optional(), notes: z.string().trim().max(10000).optional(), fee: z.string().max(20).optional() }).strict(), data);
   if (!data.title.trim()) throw new Error("A grading needs a title");
   if (!data.date) throw new Error("A grading needs a date");
 
@@ -243,6 +258,7 @@ export async function createGrading(data: {
     })
     .returning({ id: gradingEvents.id });
 
+  revalidatePath("/dashboard/grading");
   revalidatePath("/dashboard/coach/grading");
   return { id: created.id };
 }
@@ -259,12 +275,97 @@ export async function cancelGrading(gradingId: string) {
     .update(gradingEvents)
     .set({ status: "cancelled" })
     .where(eq(gradingEvents.id, gradingId));
+  await db
+    .update(gradingExaminerInvites)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(gradingExaminerInvites.gradingId, gradingId),
+        isNull(gradingExaminerInvites.revokedAt)
+      )
+    );
 
+  revalidatePath("/dashboard/grading");
   revalidatePath("/dashboard/coach/grading");
-  revalidatePath(`/dashboard/coach/grading/${gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
+}
+
+export async function createExternalExaminerInvite(data: {
+  gradingId: string;
+  examinerName: string;
+  examinerEmail: string;
+}) {
+  const user = await requireCoach();
+  if (
+    !data ||
+    typeof data !== "object" ||
+    typeof data.gradingId !== "string" ||
+    typeof data.examinerName !== "string" ||
+    typeof data.examinerEmail !== "string"
+  ) {
+    throw new Error("Provide an examiner name, email, and grading.");
+  }
+  const examinerName = data.examinerName.trim();
+  const examinerEmail = data.examinerEmail.trim().toLowerCase();
+
+  if (!examinerName || examinerName.length > 255) {
+    throw new Error("Enter an examiner name of 1 to 255 characters.");
+  }
+  if (
+    examinerEmail.length > 255 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(examinerEmail)
+  ) {
+    throw new Error("Enter a valid examiner email address.");
+  }
+
+  const grading = await loadOpenGrading(data.gradingId);
+  if (grading.status === "published" || grading.status === "cancelled") {
+    throw new Error(`An examiner link cannot be created for a ${grading.status} grading.`);
+  }
+
+  const token = generateExaminerToken();
+  const expiresAt = examinerTokenExpiry(7);
+  await db.transaction(async (tx) => {
+    await tx
+      .update(gradingExaminerInvites)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(gradingExaminerInvites.gradingId, grading.id),
+          isNull(gradingExaminerInvites.revokedAt)
+        )
+      );
+    await tx.insert(gradingExaminerInvites).values({
+      gradingId: grading.id,
+      examinerName,
+      examinerEmail,
+      tokenHash: hashToken(token),
+      expiresAt,
+      createdBy: user.id,
+    });
+  });
+
+  const baseUrl = await getBaseUrl();
+  const inviteUrl = new URL(`/examiner/${recordSlug(grading.title, token)}`, baseUrl).toString();
+  const emailResult = await sendExternalExaminerInviteEmail(
+    examinerEmail,
+    examinerName,
+    grading.title,
+    inviteUrl,
+    expiresAt
+  );
+
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
+  return {
+    inviteUrl,
+    expiresAt: expiresAt.toISOString(),
+    emailSent: emailResult.ok,
+    emailError: emailResult.ok ? null : emailResult.error,
+  };
 }
 
 async function loadOpenGrading(gradingId: string) {
+  validate(recordId, gradingId);
   const [grading] = await db
     .select()
     .from(gradingEvents)
@@ -284,10 +385,8 @@ async function loadOpenGrading(gradingId: string) {
  * belts up - see `promotionTargets` in `@/lib/grading`. The geup inside that
  * belt is not decided here; the panel awards it at marking.
  *
- * Eligibility is re-checked here against live attendance and dues. A blocked
- * member can still be entered, but only with `overrideReason` filled in: the
- * reason is stored on the record and shown beside the result, so a discretionary
- * entry is always visible as one.
+ * Eligibility is re-checked against live attendance and dues for coach
+ * guidance. A warning never prevents the coach from entering the candidate.
  */
 export async function registerGradingCandidate(data: {
   gradingId: string;
@@ -297,7 +396,7 @@ export async function registerGradingCandidate(data: {
 }) {
   await requireCoach();
   await requireOpenWindow();
-
+  data = validate(z.object({ gradingId: recordId, userId: recordId, targetBeltId: z.string().min(1).max(50), overrideReason: reviewNote }).strict(), data);
   const grading = await loadOpenGrading(data.gradingId);
   if (grading.status === "published" || grading.status === "cancelled") {
     throw new Error(`Candidates cannot be added to a ${grading.status} grading`);
@@ -323,14 +422,6 @@ export async function registerGradingCandidate(data: {
     // Not a permitted promotion at all. No override covers this: there is no
     // rank to award.
     throw new Error(verdict.blockers.map((b) => b.message).join(" "));
-  }
-
-  if (!verdict.eligible && !override) {
-    throw new Error(
-      `${context.fullName} does not meet the requirements for ${target.name}: ${verdict.blockers
-        .map((b) => b.message)
-        .join(" ")} Record an override reason to enter them anyway.`
-    );
   }
 
   const [existing] = await db
@@ -361,7 +452,7 @@ export async function registerGradingCandidate(data: {
 
   await chargeCandidate(data.gradingId, data.userId);
 
-  revalidatePath(`/dashboard/coach/grading/${data.gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
   revalidatePath("/dashboard/coach/grading");
   revalidatePath("/dashboard/payments");
 
@@ -378,7 +469,7 @@ export async function removeGradingCandidate(candidateId: string) {
 
   await db.delete(gradingCandidates).where(eq(gradingCandidates.id, candidateId));
 
-  revalidatePath(`/dashboard/coach/grading/${candidate.gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +477,7 @@ export async function removeGradingCandidate(candidateId: string) {
 // ---------------------------------------------------------------------------
 
 async function loadPendingRequest(requestId: string) {
+  validate(recordId, requestId);
   const [request] = await db
     .select()
     .from(gradingRequests)
@@ -406,13 +498,15 @@ async function loadPendingRequest(requestId: string) {
  * over the grading's standard fee, so a coach can price this acceptance on
  * the spot instead of relying on (or waiting for) a fee set on the grading.
  */
-export async function acceptGradingRequest(data: {
+async function acceptGradingRequestCore(data: {
   requestId: string;
   gradingId: string;
   overrideReason?: string;
   amount?: string;
 }) {
   const user = await requireCoach();
+  data = validate(z.object({ requestId: recordId, gradingId: recordId, overrideReason: reviewNote, amount: z.string().max(20).optional() }).strict(), data);
+  const amount = parseFee(data.amount);
   const request = await loadPendingRequest(data.requestId);
 
   const created = await registerGradingCandidate({
@@ -422,7 +516,6 @@ export async function acceptGradingRequest(data: {
     overrideReason: data.overrideReason,
   });
 
-  const amount = parseFee(data.amount);
   if (amount) {
     await chargeCandidateAmount(data.gradingId, request.userId, amount);
   }
@@ -438,15 +531,16 @@ export async function acceptGradingRequest(data: {
     .where(eq(gradingRequests.id, data.requestId));
 
   revalidatePath("/dashboard/coach/grading");
-  revalidatePath(`/dashboard/coach/grading/${data.gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
   revalidatePath("/dashboard/grading");
   revalidatePath("/dashboard/payments");
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");
 }
 
-export async function declineGradingRequest(requestId: string, reviewNote?: string) {
+async function declineGradingRequestCore(requestId: string, reviewNote?: string) {
   const user = await requireCoach();
+  if (reviewNote !== undefined && (typeof reviewNote !== "string" || reviewNote.length > 2000)) throw new Error("Review notes must be at most 2,000 characters.");
   await loadPendingRequest(requestId);
 
   await db
@@ -466,6 +560,7 @@ export async function declineGradingRequest(requestId: string, reviewNote?: stri
 }
 
 async function loadCandidate(candidateId: string) {
+  validate(recordId, candidateId);
   const [row] = await db
     .select({
       id: gradingCandidates.id,
@@ -496,25 +591,170 @@ function promotionForCandidate(fromRankId: string, toBeltId: string) {
   return buildPromotion(from, to);
 }
 
-/**
- * Records the panel's marks and recomputes the outcome.
- *
- * The total and the decision are derived here rather than accepted from the
- * client - the form posts marks, never a verdict. Scores for criteria that this
- * rank does not examine are discarded.
- */
+export async function saveExternalExaminerMarks(data: {
+  token: string;
+  candidateId: string;
+  scores: CriterionScores;
+  notes?: string;
+}) {
+  if (!(await requestRateLimit("examiner-marks", 120, 5 * 60_000)).allowed) throw new Error("Too many submissions. Please try again later.");
+  if (
+    !data ||
+    typeof data !== "object" ||
+    typeof data.token !== "string" ||
+    typeof data.candidateId !== "string" ||
+    !/^[a-f0-9]{64}$/i.test(data.token)
+  ) {
+    throw new Error("This examiner link is invalid or expired.");
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.candidateId)) {
+    throw new Error("Choose a valid candidate.");
+  }
+
+  const [invite] = await db
+    .select({
+      id: gradingExaminerInvites.id,
+      gradingId: gradingExaminerInvites.gradingId,
+      expiresAt: gradingExaminerInvites.expiresAt,
+      revokedAt: gradingExaminerInvites.revokedAt,
+      gradingStatus: gradingEvents.status,
+    })
+    .from(gradingExaminerInvites)
+    .innerJoin(gradingEvents, eq(gradingEvents.id, gradingExaminerInvites.gradingId))
+    .where(
+      and(
+        eq(gradingExaminerInvites.tokenHash, hashToken(data.token)),
+        isNull(gradingExaminerInvites.revokedAt),
+        gt(gradingExaminerInvites.expiresAt, new Date())
+      )
+    )
+    .limit(1);
+
+  if (
+    !invite ||
+    invite.revokedAt ||
+    invite.expiresAt <= new Date() ||
+    invite.gradingStatus === "published" ||
+    invite.gradingStatus === "cancelled"
+  ) {
+    throw new Error("This examiner link is invalid, expired, or closed.");
+  }
+
+  const [candidate] = await db
+    .select({
+      id: gradingCandidates.id,
+      fromRank: gradingCandidates.fromRank,
+      toBelt: gradingCandidates.toBelt,
+      outcome: gradingCandidates.outcome,
+    })
+    .from(gradingCandidates)
+    .where(
+      and(
+        eq(gradingCandidates.id, data.candidateId),
+        eq(gradingCandidates.gradingId, invite.gradingId)
+      )
+    )
+    .limit(1);
+
+  if (!candidate) throw new Error("This candidate is not part of the invited grading.");
+  if (candidate.outcome === "absent" || candidate.outcome === "withdrawn") {
+    throw new Error("Marks cannot be submitted for an absent or withdrawn candidate.");
+  }
+
+  promotionForCandidate(candidate.fromRank, candidate.toBelt);
+  if (!data.scores || typeof data.scores !== "object" || Array.isArray(data.scores)) {
+    throw new Error("Enter marks before submitting.");
+  }
+
+  const scores: CriterionScores = {};
+  let hasScore = false;
+  for (const criterion of criteriaFor()) {
+    const value = data.scores[criterion.id];
+    if (value === null || value === undefined) {
+      scores[criterion.id] = null;
+      continue;
+    }
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < 0 ||
+      value > MAX_CRITERION_SCORE
+    ) {
+      throw new Error(
+        `${criterion.label} marks must be a whole number from 0 to ${MAX_CRITERION_SCORE}.`
+      );
+    }
+    scores[criterion.id] = value;
+    hasScore = true;
+  }
+
+  if (data.notes !== undefined && typeof data.notes !== "string") {
+    throw new Error("Examiner notes must be text.");
+  }
+  if (data.notes && data.notes.length > 5000) {
+    throw new Error("Examiner notes must be 5,000 characters or fewer.");
+  }
+  if (!hasScore) throw new Error("Enter at least one mark before submitting.");
+  const notes = data.notes?.trim() || null;
+
+  const submittedAt = new Date();
+  await db
+    .insert(gradingExaminerMarks)
+    .values({
+      inviteId: invite.id,
+      candidateId: candidate.id,
+      scoreBasics: scores.basics ?? null,
+      scorePoomsae: scores.poomsae ?? null,
+      scoreKyorugi: scores.kyorugi ?? null,
+      scoreKyukpa: scores.kyukpa ?? null,
+      scoreHoshinsul: scores.hoshinsul ?? null,
+      scoreTheory: scores.theory ?? null,
+      notes,
+      submittedAt,
+    })
+    .onConflictDoUpdate({
+      target: [gradingExaminerMarks.inviteId, gradingExaminerMarks.candidateId],
+      set: {
+        scoreBasics: scores.basics ?? null,
+        scorePoomsae: scores.poomsae ?? null,
+        scoreKyorugi: scores.kyorugi ?? null,
+        scoreKyukpa: scores.kyukpa ?? null,
+        scoreHoshinsul: scores.hoshinsul ?? null,
+        scoreTheory: scores.theory ?? null,
+        notes,
+        submittedAt,
+      },
+    });
+
+  if (invite.gradingStatus === "scheduled") {
+    await db
+      .update(gradingEvents)
+      .set({ status: "in_progress" })
+      .where(eq(gradingEvents.id, invite.gradingId));
+  }
+
+  return { submittedAt: submittedAt.toISOString() };
+}
+
+/** Saves individual marks and the coach's manual decision. */
 export async function saveCandidateScores(data: {
   candidateId: string;
   scores: CriterionScores;
+  outcome: GradingDecision;
   examinerNotes?: string;
-  /**
-   * The geup to award inside the target belt. The panel's call, not the
-   * system's - so it is accepted from the form, unlike the outcome. Only
-   * validated to be a grade that actually belongs to the belt being graded to.
-   */
   awardedRankId?: string | null;
 }) {
   const user = await requireCoach();
+  if (
+    !data ||
+    typeof data !== "object" ||
+    typeof data.candidateId !== "string" ||
+    !data.scores ||
+    typeof data.scores !== "object" ||
+    Array.isArray(data.scores)
+  ) {
+    throw new Error("Provide valid candidate marks and a result.");
+  }
 
   const candidate = await loadCandidate(data.candidateId);
   if (candidate.gradingStatus === "published") {
@@ -529,37 +769,52 @@ export async function saveCandidateScores(data: {
     );
   }
 
-  const promotion = promotionForCandidate(candidate.fromRank, candidate.toBelt);
-  const examined = criteriaFor(promotion.to).map((c) => c.id);
+  if (!isGradingDecision(data.outcome)) {
+    throw new Error("Choose a valid grading result.");
+  }
+  if (data.examinerNotes !== undefined && typeof data.examinerNotes !== "string") {
+    throw new Error("Examiner notes must be text.");
+  }
 
-  // Only keep marks for criteria this rank is actually examined on.
+  const promotion = promotionForCandidate(candidate.fromRank, candidate.toBelt);
+  const examined = criteriaFor().map((c) => c.id);
+
   const scores: CriterionScores = {};
   for (const id of examined) {
     const value = data.scores[id];
-    scores[id] = typeof value === "number" && Number.isFinite(value) ? value : null;
+    if (value === null || value === undefined) {
+      scores[id] = null;
+      continue;
+    }
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < 0 ||
+      value > MAX_CRITERION_SCORE
+    ) {
+      throw new Error(`${id} marks must be a whole number from 0 to ${MAX_CRITERION_SCORE}.`);
+    }
+    scores[id] = value;
   }
 
-  const assessment = assessGrading(promotion, scores);
-
-  // The awarded geup only means something on a pass. A candidate who did not
-  // pass keeps their existing rank, so there is nothing to record.
   let awardedRank: string | null = null;
-  if (isPromoting(assessment.outcome)) {
+  if (isPromoting(data.outcome)) {
     const chosen = data.awardedRankId
       ? promotion.awardable.find((r) => r.id === data.awardedRankId)
       : undefined;
 
-    if (data.awardedRankId && !chosen) {
+    if (!chosen) {
       throw new Error(
-        `${data.awardedRankId} is not a grade within ${promotion.to.name}. Choose one of: ${promotion.awardable
+        `Choose the grade to award within ${promotion.to.name}: ${promotion.awardable
           .map((r) => r.grade)
           .join(", ")}.`
       );
     }
+    awardedRank = chosen.id;
+  }
 
-    // Fall back to the standard award for the result if the panel has not
-    // picked one yet, so a saved pass is never left without a grade.
-    awardedRank = (chosen ?? suggestedAward(promotion, assessment.outcome))?.id ?? null;
+  if (data.examinerNotes !== undefined && (typeof data.examinerNotes !== "string" || data.examinerNotes.length > 5000)) {
+    throw new Error("Examiner notes must be 5,000 characters or fewer.");
   }
 
   await db
@@ -571,8 +826,8 @@ export async function saveCandidateScores(data: {
       scoreKyukpa: scores.kyukpa ?? null,
       scoreHoshinsul: scores.hoshinsul ?? null,
       scoreTheory: scores.theory ?? null,
-      totalScore: assessment.complete ? assessment.total.toFixed(2) : null,
-      outcome: assessment.outcome,
+      totalScore: null,
+      outcome: data.outcome,
       awardedRank,
       examinerNotes: data.examinerNotes?.trim() || null,
       examinedBy: user.id,
@@ -588,15 +843,9 @@ export async function saveCandidateScores(data: {
       .where(eq(gradingEvents.id, candidate.gradingId));
   }
 
-  revalidatePath(`/dashboard/coach/grading/${candidate.gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
 
-  return {
-    outcome: assessment.outcome,
-    total: assessment.total,
-    complete: assessment.complete,
-    summary: assessment.summary,
-    awardedRank,
-  };
+  return { outcome: data.outcome, awardedRank };
 }
 
 /**
@@ -609,16 +858,23 @@ export async function setCandidateAttendance(
   state: "absent" | "withdrawn" | "reinstate"
 ) {
   await requireCoach();
+  if (!["absent", "withdrawn", "reinstate"].includes(state)) {
+    throw new Error("Choose a valid candidate attendance state.");
+  }
 
   const candidate = await loadCandidate(candidateId);
   if (candidate.gradingStatus === "published") {
     throw new Error("A published grading can no longer be changed");
+  }
+  if (candidate.gradingStatus === "cancelled") {
+    throw new Error("This grading was cancelled");
   }
 
   await db
     .update(gradingCandidates)
     .set({
       outcome: state === "reinstate" ? "pending" : state,
+      awardedRank: null,
       scoreBasics: null,
       scorePoomsae: null,
       scoreKyorugi: null,
@@ -626,12 +882,13 @@ export async function setCandidateAttendance(
       scoreHoshinsul: null,
       scoreTheory: null,
       totalScore: null,
+      examinerNotes: null,
       examinedAt: null,
       examinedBy: null,
     })
     .where(eq(gradingCandidates.id, candidateId));
 
-  revalidatePath(`/dashboard/coach/grading/${candidate.gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
 }
 
 // ---------------------------------------------------------------------------
@@ -646,7 +903,7 @@ export async function setCandidateAttendance(
  * and a published grading is read-only afterwards. Candidates see nothing until
  * this runs, so the panel can revise a mark without a member having seen it.
  */
-export async function publishGrading(gradingId: string) {
+async function publishGradingCore(gradingId: string) {
   const user = await requireCoach();
 
   const grading = await loadOpenGrading(gradingId);
@@ -674,16 +931,14 @@ export async function publishGrading(gradingId: string) {
   for (const candidate of candidates) {
     if (!isPromoting(candidate.outcome)) continue;
 
-    // The grade the panel awarded inside the target belt. Falls back to the
-    // standard award for the outcome if a record predates that choice.
     const belt = beltById(candidate.toBelt);
     const from = rankById(candidate.fromRank);
-    const target =
-      rankById(candidate.awardedRank) ??
-      (belt && from
-        ? suggestedAward(buildPromotion(from, belt), candidate.outcome)
-        : null);
-    if (!target) continue;
+    const target = rankById(candidate.awardedRank);
+    if (!belt || !from || !target || !belt.grades.includes(target.id)) {
+      throw new Error(
+        "Every promoted candidate needs a valid grade selected before results can be published."
+      );
+    }
 
     const [profile] = await db
       .select({ beltGrade: memberProfiles.beltGrade })
@@ -712,9 +967,18 @@ export async function publishGrading(gradingId: string) {
     .update(gradingEvents)
     .set({ status: "published", publishedBy: user.id, publishedAt: new Date() })
     .where(eq(gradingEvents.id, gradingId));
+  await db
+    .update(gradingExaminerInvites)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(gradingExaminerInvites.gradingId, gradingId),
+        isNull(gradingExaminerInvites.revokedAt)
+      )
+    );
 
   revalidatePath("/dashboard/coach/grading");
-  revalidatePath(`/dashboard/coach/grading/${gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
   revalidatePath("/dashboard/coach");
   revalidatePath("/dashboard/coach/attendance");
   revalidatePath("/dashboard/student");
@@ -759,9 +1023,28 @@ export async function setGradingFee(gradingId: string, fee: string) {
     }
   }
 
-  revalidatePath(`/dashboard/coach/grading/${gradingId}`);
+  revalidatePath("/dashboard/coach/grading/[gradingId]", "page");
+  revalidatePath("/dashboard/grading");
   revalidatePath("/dashboard/coach/grading");
   revalidatePath("/dashboard/payments");
 
   return { ok: true as const, fee: parsed };
+}
+
+export async function acceptGradingRequest(...args: Parameters<typeof acceptGradingRequestCore>) {
+  const result = await acceptGradingRequestCore(...args);
+  await afterAccountAction("acceptGradingRequest", args, result);
+  return result;
+}
+
+export async function declineGradingRequest(...args: Parameters<typeof declineGradingRequestCore>) {
+  const result = await declineGradingRequestCore(...args);
+  await afterAccountAction("declineGradingRequest", args, result);
+  return result;
+}
+
+export async function publishGrading(...args: Parameters<typeof publishGradingCore>) {
+  const result = await publishGradingCore(...args);
+  await afterAccountAction("publishGrading", args, result);
+  return result;
 }

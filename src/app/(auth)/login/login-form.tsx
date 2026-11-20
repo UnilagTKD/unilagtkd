@@ -25,7 +25,7 @@ function MailIcon() {
   );
 }
 
-export function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
+export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -41,7 +41,7 @@ export function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
     setLoading(false);
 
     if (result.ok) {
-      router.push(callbackUrl || "/dashboard");
+      router.replace("/dashboard");
       router.refresh();
     } else {
       setError(result.error);

@@ -1,9 +1,7 @@
 import type { NextAuthConfig } from "next-auth";
 import type { UserRole } from "@/types/next-auth";
 
-// Edge-safe config (no database imports) used by middleware.
-// The Credentials provider (which needs `db`) is added in `auth.ts`,
-// which is only ever loaded in Node runtimes (API routes, server components).
+// Shared session serialization. Database-backed role and status checks live in auth.ts.
 export const authConfig = {
   pages: {
     signIn: "/login",

@@ -3,33 +3,40 @@
 import { useState } from "react";
 import { Field, inputClass } from "@/components/form/fields";
 import { submitContactMessage } from "./actions";
+import { BotProtection, type BotProtectionInput } from "@/components/form/bot-protection";
 
 export function ContactForm() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [protection, setProtection] = useState<BotProtectionInput>({ website: "", token: "" });
+  const [protectionVersion, setProtectionVersion] = useState(0);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
 
-    const form = new FormData(e.currentTarget);
+    const formElement = e.currentTarget;
+    const form = new FormData(formElement);
+    try {
     const result = await submitContactMessage({
       name: String(form.get("name") || ""),
       email: String(form.get("email") || ""),
       subject: String(form.get("subject") || ""),
       message: String(form.get("message") || ""),
-    });
+    }, protection);
 
     setSubmitting(false);
 
     if (result.ok) {
       setSubmitted(true);
-      e.currentTarget.reset();
+      formElement.reset();
     } else {
       setError(result.error);
     }
+    } catch { setError("Could not send your message. Please try again."); }
+    finally { setSubmitting(false); setProtectionVersion((version) => version + 1); }
   }
 
   if (submitted) {
@@ -66,6 +73,7 @@ export function ContactForm() {
       </Field>
 
       {error && <p className="text-sm text-brand-red">{error}</p>}
+      <BotProtection key={protectionVersion} action="contact" onChange={setProtection} />
 
       <button
         type="submit"

@@ -1,11 +1,20 @@
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { db } from "@/db";
-import { insights } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { getInsightsPage, pageNumber } from "@/lib/public-content";
+import { SiteImage } from "@/components/site-image";
+import { PublicPagination } from "@/components/public-pagination";
+import { notFound } from "next/navigation";
+
+
 import { Reveal } from "@/components/reveal";
 
-export const metadata: Metadata = { title: "Insights" };
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
+  const page = pageNumber((await searchParams).page);
+  const result = await getInsightsPage(page);
+  if (page > result.pages) notFound();
+  return publicMetadata("/insights" + (page > 1 ? "?page=" + page : ""), page > 1 ? { title: "Insights — Page " + page } : {});
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   training: "Training",
@@ -21,11 +30,13 @@ const CATEGORY_COLORS: Record<string, string> = {
   wellness: "bg-brand-blue/10 text-brand-blue",
 };
 
-export default async function InsightsPage() {
-  const posts = await db.select().from(insights).orderBy(desc(insights.createdAt));
+export default async function InsightsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+  const page = pageNumber((await searchParams).page);
+  const { posts, pages } = await getInsightsPage(page);
+  if (page > pages) notFound();
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
       <span className="text-sm font-semibold uppercase tracking-widest text-brand-red">
         From the Dojang
       </span>
@@ -46,11 +57,10 @@ export default async function InsightsPage() {
                 className="group block overflow-hidden rounded-xl border border-black/10 bg-white transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
               >
                 {post.coverImageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <SiteImage
                     src={post.coverImageUrl}
-                    alt=""
-                    className="aspect-[16/9] w-full object-cover"
+                    alt={post.title}
+                    className="aspect-[16/9] h-auto w-full object-cover"
                   />
                 )}
                 <div className="p-5">
@@ -73,6 +83,7 @@ export default async function InsightsPage() {
           ))}
         </div>
       )}
+      <PublicPagination path="/insights" page={page} pages={pages} />
     </div>
   );
 }

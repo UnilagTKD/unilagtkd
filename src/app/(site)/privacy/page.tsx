@@ -1,6 +1,7 @@
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 
-export const metadata: Metadata = { title: "Privacy Policy" };
+export const metadata: Metadata = publicMetadata("/privacy");
 
 const LAST_UPDATED = "August 21, 2026";
 

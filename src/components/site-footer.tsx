@@ -1,3 +1,4 @@
+import { portalHref } from "@/lib/domains";
 import Link from "next/link";
 import { ClubLogo } from "./club-logo";
 import { AffiliationBadges } from "./affiliation-badges";
@@ -7,7 +8,7 @@ export function SiteFooter() {
     <footer className="border-t border-black/10 bg-gradient-to-b from-brand-blue-dark to-brand-black text-zinc-300">
       <div className="h-1 w-full bg-brand-red" />
 
-      <div className="mx-auto grid max-w-6xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-3">
+      <div className="mx-auto grid max-w-[1800px] gap-8 px-4 py-12 sm:px-6 md:grid-cols-3">
         <div>
           <div className="flex items-center gap-2">
             <ClubLogo size={36} />
@@ -41,9 +42,9 @@ export function SiteFooter() {
             Get Involved
           </h3>
           <ul className="mt-3 space-y-2 text-sm">
-            <li><Link href="/register" className="hover:text-brand-red">Membership Registration</Link></li>
+            <li><Link href={portalHref("/register")} className="hover:text-brand-red">Membership Registration</Link></li>
             <li><Link href="/contact" className="hover:text-brand-red">Contact Us</Link></li>
-            <li><Link href="/login" className="hover:text-brand-red">Member Login</Link></li>
+            <li><Link href={portalHref("/login")} className="hover:text-brand-red">Member Login</Link></li>
           </ul>
         </div>
       </div>

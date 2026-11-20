@@ -1,5 +1,9 @@
 import {
   pgTable,
+  pgPolicy,
+  check,
+  jsonb,
+  uniqueIndex,
   pgEnum,
   uuid,
   text,
@@ -12,9 +16,9 @@ import {
   unique,
   index,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
-export const roleEnum = pgEnum("role", ["student", "coach", "exco", "alumni"]);
+export const roleEnum = pgEnum("role", ["student", "coach", "exco", "alumni", "admin"]);
 export const userStatusEnum = pgEnum("user_status", ["active", "inactive"]);
 export const applicationStatusEnum = pgEnum("application_status", [
   "pending",
@@ -26,6 +30,7 @@ export const membershipCategoryEnum = pgEnum("membership_category", [
   "postgraduate",
   "alumni",
   "non_student",
+  "staff",
 ]);
 export const medalEnum = pgEnum("medal", ["gold", "silver", "bronze"]);
 export const galleryCategoryEnum = pgEnum("gallery_category", [
@@ -80,8 +85,8 @@ export const gradingStatusEnum = pgEnum("grading_status", [
   "published",
   "cancelled",
 ]);
-// "pending" until the panel finishes marking; "absent" and "withdrawn" are
-// administrative and carry no scores.
+// The coach records a manual result; "pending" is unresolved, while "absent"
+// and "withdrawn" carry no marks.
 export const gradingOutcomeEnum = pgEnum("grading_outcome", [
   "pending",
   "distinction",
@@ -98,6 +103,12 @@ export const gradingRequestStatusEnum = pgEnum("grading_request_status", [
   "accepted",
   "declined",
 ]);
+
+export const securityRateLimits = pgTable("security_rate_limits", {
+  keyHash: varchar("key_hash", { length: 64 }).primaryKey(),
+  count: integer("count").notNull(),
+  resetAt: timestamp("reset_at", { withTimezone: true }).notNull(),
+}, (t) => [index("security_rate_limits_expiry_idx").on(t.resetAt), serverOnlyPolicy()]).enableRLS();
 
 export const users = pgTable(
   "users",
@@ -122,11 +133,15 @@ export const users = pgTable(
   },
   // Nearly every roster/member-list query filters on role (e.g. "every active
   // member"), so this is scanned on almost every dashboard page load.
-  (t) => [index("users_role_idx").on(t.role)]
-);
+  (t) => [index("users_role_idx").on(t.role), serverOnlyPolicy()]
+).enableRLS();
 
 export const memberProfiles = pgTable("member_profiles", {
+  graduationYear: varchar("graduation_year", { length: 4 }),
+  institution: varchar("institution", { length: 200 }),
+  occupation: varchar("occupation", { length: 150 }),
   id: uuid("id").primaryKey().defaultRandom(),
+  surname: varchar("surname", { length: 100 }),
   userId: uuid("user_id")
     .notNull()
     .unique()
@@ -155,7 +170,7 @@ export const memberProfiles = pgTable("member_profiles", {
   // A scanned/photographed signature, shown on official documents this
   // member issues on the club's behalf (e.g. the Treasurer's dues receipts).
   signatureUrl: text("signature_url"),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const medicalRecords = pgTable("medical_records", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -174,18 +189,22 @@ export const medicalRecords = pgTable("medical_records", {
   }),
   emergencyContactPhone: varchar("emergency_contact_phone", { length: 30 }),
   altPhone: varchar("alt_phone", { length: 30 }),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const subCommittees = pgTable("sub_committees", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 150 }).notNull(),
   description: text("description"),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const applications = pgTable(
   "applications",
   {
+  surname: varchar("surname", { length: 100 }),
     id: uuid("id").primaryKey().defaultRandom(),
+    graduationYear: varchar("graduation_year", { length: 4 }),
+    institution: varchar("institution", { length: 200 }),
+    occupation: varchar("occupation", { length: 150 }),
 
   // 1. Membership category
   membershipCategory: membershipCategoryEnum("membership_category").notNull(),
@@ -194,6 +213,7 @@ export const applications = pgTable(
   photoData: text("photo_data"),
 
   // 2. Personal & academic profile
+  username: varchar("username", { length: 50 }),
   fullName: varchar("full_name", { length: 255 }).notNull(),
   matricOrStaffNo: varchar("matric_or_staff_no", { length: 100 }),
   utmeJambNo: varchar("utme_jamb_no", { length: 50 }),
@@ -241,6 +261,16 @@ export const applications = pgTable(
   guardianSignature: varchar("guardian_signature", { length: 255 }),
 
   // Review pipeline
+  semesterLabel: varchar("semester_label", { length: 150 }),
+  semesterDues: numeric("semester_dues", { precision: 10, scale: 2 }),
+  paymentReceiptData: text("payment_receipt_data"),
+  paymentReference: varchar("admission_payment_reference", { length: 200 }),
+  paymentStatus: varchar("admission_payment_status", { length: 20 }).notNull().default("pending"),
+  paymentReviewedBy: uuid("admission_payment_reviewed_by").references(() => users.id),
+  paymentReviewedAt: timestamp("admission_payment_reviewed_at", { withTimezone: true }),
+  paymentReviewNote: text("admission_payment_review_note"),
+  trackingTokenHash: varchar("tracking_token_hash", { length: 255 }),
+  trackingTokenExpires: timestamp("tracking_token_expires", { withTimezone: true }),
   status: applicationStatusEnum("status").notNull().default("pending"),
   adminNotes: text("admin_notes"),
   reviewedBy: uuid("reviewed_by").references(() => users.id),
@@ -251,11 +281,37 @@ export const applications = pgTable(
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("applications_user_id_idx").on(t.userId)]
-);
+  (t) => [index("applications_user_id_idx").on(t.userId), serverOnlyPolicy()]
+).enableRLS();
+
+export const attendancePeriods = pgTable("attendance_periods", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 150 }).notNull(),
+  startsOn: date("starts_on").notNull(),
+  endsOn: date("ends_on"),
+  notes: text("notes"),
+  openedBy: uuid("opened_by").references(() => users.id, { onDelete: "set null" }),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),
+  closedBy: uuid("closed_by").references(() => users.id, { onDelete: "set null" }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+}, (t) => [uniqueIndex("attendance_periods_one_open_idx").on(sql`(1)`).where(sql`${t.closedAt} is null`), check("attendance_period_dates", sql`${t.endsOn} is null or ${t.endsOn} >= ${t.startsOn}`), serverOnlyPolicy()]).enableRLS();
+
+export type PeriodAttendanceRecord = { sessionId: string; sessionTitle: string; sessionDate: string; present: boolean; beforeJoining: boolean; onLeave: boolean };
+export const attendancePeriodSnapshots = pgTable("attendance_period_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  periodId: uuid("period_id").notNull().references(() => attendancePeriods.id),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  role: roleEnum("role").notNull(),
+  beltGrade: varchar("belt_grade", { length: 50 }),
+  stats: jsonb("stats").$type<import("@/lib/attendance").AttendanceStats>().notNull(),
+  history: jsonb("history").$type<PeriodAttendanceRecord[]>().notNull(),
+}, (t) => [uniqueIndex("attendance_period_snapshot_member_idx").on(t.periodId, t.userId), serverOnlyPolicy()]).enableRLS();
 
 export const trainingSessions = pgTable("training_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  periodId: uuid("period_id").notNull().references(() => attendancePeriods.id),
   title: varchar("title", { length: 255 }).notNull(),
   date: date("date").notNull(),
   startTime: varchar("start_time", { length: 10 }),
@@ -264,10 +320,9 @@ export const trainingSessions = pgTable("training_sessions", {
   description: text("description"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  // Null while the session is open. Once set, attendance for this session is
-  // locked - no further self check-ins or coach marking.
+  // Check-in closes manually or 24 hours after the start; coach marking stays open.
   endedAt: timestamp("ended_at", { withTimezone: true }),
-});
+}, (t) => [index("training_sessions_period_idx").on(t.periodId), serverOnlyPolicy()]).enableRLS();
 
 export const attendance = pgTable(
   "attendance",
@@ -285,9 +340,9 @@ export const attendance = pgTable(
   },
   (t) => [
     index("attendance_session_id_idx").on(t.sessionId),
-    index("attendance_user_id_idx").on(t.userId),
+    index("attendance_user_id_idx").on(t.userId), serverOnlyPolicy(),
   ]
-);
+).enableRLS();
 
 // The club runs grading in periods rather than continuously. A coach opens a
 // window as a grading approaches; it lapses on its own at `closesAt`, or a
@@ -305,10 +360,10 @@ export const gradingWindows = pgTable("grading_windows", {
   // Set only when a coach closes the window ahead of `closesAt`.
   closedBy: uuid("closed_by").references(() => users.id),
   closedAt: timestamp("closed_at", { withTimezone: true }),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
-// A belt grading (promotion test) run by the coaching panel. The rules that
-// govern eligibility, scoring and promotion live in `@/lib/grading`.
+// A belt grading (promotion test) run by the coaching panel. Suggested
+// eligibility and rank guidance live in `@/lib/grading`.
 export const gradingEvents = pgTable("grading_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: varchar("title", { length: 255 }).notNull(),
@@ -328,7 +383,25 @@ export const gradingEvents = pgTable("grading_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   publishedBy: uuid("published_by").references(() => users.id),
   publishedAt: timestamp("published_at", { withTimezone: true }),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
+
+export const gradingExaminerInvites = pgTable(
+  "grading_examiner_invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gradingId: uuid("grading_id")
+      .notNull()
+      .references(() => gradingEvents.id, { onDelete: "cascade" }),
+    examinerName: varchar("examiner_name", { length: 255 }).notNull(),
+    examinerEmail: varchar("examiner_email", { length: 255 }).notNull(),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [index("grading_examiner_invites_grading_id_idx").on(t.gradingId), serverOnlyPolicy()]
+).enableRLS();
 
 // One member entered for one grading, with the panel's marks.
 export const gradingCandidates = pgTable(
@@ -357,8 +430,7 @@ export const gradingCandidates = pgTable(
     // who did not pass - there is no grade to record.
     awardedRank: varchar("awarded_rank", { length: 30 }),
 
-    // Panel marks, 0-10 each, null until examined. Which of these are examined
-    // depends on the target belt's band - see `criteriaFor` in `@/lib/grading`.
+    // Panel marks, 0-10 each. Criteria are suggestions, not scoring rules.
     scoreBasics: integer("score_basics"),
     scorePoomsae: integer("score_poomsae"),
     scoreKyorugi: integer("score_kyorugi"),
@@ -366,23 +438,46 @@ export const gradingCandidates = pgTable(
     scoreHoshinsul: integer("score_hoshinsul"),
     scoreTheory: integer("score_theory"),
 
-    // Weighted total out of 100 and the decision it produced. Both are derived
-    // from the marks above, and are recomputed server-side on every save rather
-    // than trusted from the client.
+    // Legacy total field retained for existing records. New results leave it null.
     totalScore: numeric("total_score", { precision: 5, scale: 2 }),
     outcome: gradingOutcomeEnum("outcome").notNull().default("pending"),
     examinerNotes: text("examiner_notes"),
 
-    // A coach may enter a candidate who fails an eligibility gate, but only on
-    // the record - the reason is required and shown alongside the result.
+    // Optional context for a coach's decision when eligibility guidance raises
+    // a warning. A warning does not prevent entry.
     eligibilityOverrideReason: text("eligibility_override_reason"),
 
     examinedBy: uuid("examined_by").references(() => users.id),
     examinedAt: timestamp("examined_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("grading_candidates_grading_user_unique").on(t.gradingId, t.userId)]
-);
+  (t) => [unique("grading_candidates_grading_user_unique").on(t.gradingId, t.userId), serverOnlyPolicy()]
+).enableRLS();
+
+export const gradingExaminerMarks = pgTable(
+  "grading_examiner_marks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    inviteId: uuid("invite_id")
+      .notNull()
+      .references(() => gradingExaminerInvites.id, { onDelete: "cascade" }),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => gradingCandidates.id, { onDelete: "cascade" }),
+    scoreBasics: integer("score_basics"),
+    scorePoomsae: integer("score_poomsae"),
+    scoreKyorugi: integer("score_kyorugi"),
+    scoreKyukpa: integer("score_kyukpa"),
+    scoreHoshinsul: integer("score_hoshinsul"),
+    scoreTheory: integer("score_theory"),
+    notes: text("notes"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("grading_examiner_marks_invite_candidate_unique").on(t.inviteId, t.candidateId),
+    index("grading_examiner_marks_candidate_id_idx").on(t.candidateId), serverOnlyPolicy(),
+  ]
+).enableRLS();
 
 // A student's self-nomination for grading, made while a grading window is
 // open. A coach accepts (which enters them into a specific grading event as a
@@ -408,8 +503,8 @@ export const gradingRequests = pgTable(
     ),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("grading_requests_user_id_idx").on(t.userId)]
-);
+  (t) => [index("grading_requests_user_id_idx").on(t.userId), serverOnlyPolicy()]
+).enableRLS();
 
 export const dues = pgTable(
   "dues",
@@ -435,6 +530,9 @@ export const dues = pgTable(
     paymentClaimed: boolean("payment_claimed").notNull().default(false),
     paymentClaimedAt: timestamp("payment_claimed_at", { withTimezone: true }),
     paymentReference: varchar("payment_reference", { length: 150 }),
+    paymentDeclinedAt: timestamp("payment_declined_at", { withTimezone: true }),
+    paymentDeclinedBy: uuid("payment_declined_by").references(() => users.id),
+    paymentDeclineReason: text("payment_decline_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -443,9 +541,9 @@ export const dues = pgTable(
     // Backs the Treasurer's pending-claims count, polled every 20s.
     index("dues_claimed_paid_idx").on(t.paymentClaimed, t.paid),
     // Backs the Treasurer dashboard's unpaid-charges list.
-    index("dues_paid_idx").on(t.paid),
+    index("dues_paid_idx").on(t.paid), serverOnlyPolicy(),
   ]
-);
+).enableRLS();
 
 export const achievements = pgTable("achievements", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -460,7 +558,7 @@ export const achievements = pgTable("achievements", {
   venue: varchar("venue", { length: 255 }),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const galleryItems = pgTable("gallery_items", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -469,7 +567,7 @@ export const galleryItems = pgTable("gallery_items", {
   category: galleryCategoryEnum("category").notNull().default("training"),
   uploadedBy: uuid("uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const announcements = pgTable("announcements", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -478,7 +576,7 @@ export const announcements = pgTable("announcements", {
   audience: announcementAudienceEnum("audience").notNull().default("all"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const leadership = pgTable("leadership", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -489,7 +587,7 @@ export const leadership = pgTable("leadership", {
   bio: text("bio"),
   photoUrl: text("photo_url"),
   displayOrder: integer("display_order").notNull().default(0),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const insights = pgTable("insights", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -502,7 +600,7 @@ export const insights = pgTable("insights", {
   authorName: varchar("author_name", { length: 150 }),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const contactMessages = pgTable("contact_messages", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -512,7 +610,7 @@ export const contactMessages = pgTable("contact_messages", {
   message: text("message").notNull(),
   read: boolean("read").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 // Members request to be excused from training for a period; the Welfare
 // Officer (or the President) approves or declines it.
@@ -530,7 +628,7 @@ export const leaveRequests = pgTable("leave_requests", {
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   reviewNotes: text("review_notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, () => [serverOnlyPolicy()]).enableRLS();
 
 export const leaveRequestsRelations = relations(leaveRequests, ({ one }) => ({
   user: one(users, { fields: [leaveRequests.userId], references: [users.id] }),
@@ -603,3 +701,59 @@ export const gradingRequestsRelations = relations(gradingRequests, ({ one }) => 
     references: [gradingCandidates.id],
   }),
 }));
+
+// Proposed profile changes never update the member record until reviewed.
+export const profileChangeRequests = pgTable("profile_change_requests", {
+  memberNote: text("member_note"),
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  before: jsonb("before").$type<Partial<import("@/lib/validation/profile").ProfileInput>>().notNull(),
+  proposed: jsonb("proposed").$type<Partial<import("@/lib/validation/profile").ProfileInput>>().notNull(),
+  status: varchar("status", { length: 20 }).$type<"pending" | "approved" | "rejected">().notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedBy: uuid("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewNote: text("review_note"),
+}, (t) => [
+  index("profile_change_requests_user_idx").on(t.userId),
+  uniqueIndex("profile_change_requests_one_pending_idx").on(t.userId).where(sql`${t.status} = 'pending'`), serverOnlyPolicy(),
+]).enableRLS();
+
+// End users never connect directly; the private backend enforces app permissions.
+export const clubSettings = pgTable("club_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<Record<string, unknown>>().notNull(),
+}, () => [serverOnlyPolicy()]).enableRLS();
+
+export const monthlyReports = pgTable("monthly_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  month: varchar("month", { length: 7 }).notNull().unique(),
+  summary: jsonb("summary").$type<Record<string, string | number>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, () => [serverOnlyPolicy()]).enableRLS();
+
+export const monthlyReportDeliveries = pgTable("monthly_report_deliveries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  reportId: uuid("report_id").notNull().references(() => monthlyReports.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+}, t => [uniqueIndex("monthly_delivery_report_email_idx").on(t.reportId, t.email), serverOnlyPolicy()]).enableRLS();
+
+export const notifications = pgTable("notifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  eventKey: text("event_key").notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  message: text("message").notNull(),
+  href: text("href").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  emailStatus: varchar("email_status", { length: 20 }).notNull().default("pending"),
+  emailAttempts: integer("email_attempts").notNull().default(0),
+  emailClaimedAt: timestamp("email_claimed_at", { withTimezone: true }),
+}, t => [uniqueIndex("notifications_event_user_idx").on(t.eventKey, t.userId), index("notifications_user_date_idx").on(t.userId, t.createdAt), serverOnlyPolicy()]).enableRLS();
+
+function serverOnlyPolicy() {
+  return pgPolicy("server_only", { as: "restrictive", for: "all", to: "public", using: sql`false`, withCheck: sql`false` });
+}

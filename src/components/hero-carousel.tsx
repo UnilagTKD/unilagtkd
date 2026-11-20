@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { SiteImage } from "@/components/site-image";
 
 export type HeroSlide = {
   image?: string | null;
@@ -17,20 +18,25 @@ export type HeroSlide = {
 export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [interacting, setInteracting] = useState(false);
 
   useEffect(() => {
-    if (paused || slides.length <= 1) return;
+    if (paused || interacting || slides.length <= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => {
       setIndex((i) => (i + 1) % slides.length);
     }, 6000);
     return () => clearInterval(id);
-  }, [paused, slides.length]);
+  }, [paused, interacting, slides.length]);
 
   return (
     <section
       className="relative overflow-hidden bg-brand-black text-white"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
+      aria-roledescription="carousel"
+      aria-label="UNILAG Taekwondo Club highlights"
+      onMouseEnter={() => setInteracting(true)}
+      onMouseLeave={() => setInteracting(false)}
+      onFocusCapture={() => setInteracting(true)}
+      onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setInteracting(false); }}
     >
       <div className="relative h-[520px] sm:h-[560px]">
         {slides.map((slide, i) => (
@@ -41,23 +47,23 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
               i === index ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
           >
-            {slide.image && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+            {slide.image && i === index && (
+              <SiteImage
                 src={slide.image}
                 alt=""
+                fill
+                sizes="100vw"
+                preload={i === 0}
                 className="absolute inset-0 h-full w-full object-cover"
               />
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-brand-black via-brand-black/70 to-brand-black/30" />
 
-            <div className="relative mx-auto flex h-full max-w-6xl flex-col items-start justify-center gap-6 px-4 sm:px-6">
+            <div className="relative mx-auto flex h-full max-w-[1800px] flex-col items-start justify-center gap-6 px-4 sm:px-6">
               <span className="animate-fade-in-up rounded-full bg-brand-red px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white">
                 {slide.eyebrow}
               </span>
-              <h1 className="animate-fade-in-up animate-delay-1 max-w-2xl text-4xl font-bold leading-tight sm:text-5xl">
-                {slide.title}
-              </h1>
+              {i === 0 ? <h1 className="max-w-2xl text-4xl font-bold leading-tight sm:text-5xl">{slide.title}</h1> : <h2 className="max-w-2xl text-4xl font-bold leading-tight sm:text-5xl">{slide.title}</h2>}
               <p className="animate-fade-in-up animate-delay-2 max-w-xl text-lg text-zinc-300">
                 {slide.description}
               </p>
@@ -84,19 +90,19 @@ export function HeroCarousel({ slides }: { slides: HeroSlide[] }) {
 
       {slides.length > 1 && (
         <>
-          <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-2">
+          <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1">
             {slides.map((_, i) => (
               <button
                 key={i}
                 type="button"
                 aria-label={`Go to slide ${i + 1}`}
+                aria-pressed={i === index}
                 onClick={() => setIndex(i)}
-                className={`h-2 rounded-full transition-all ${
-                  i === index ? "w-6 bg-brand-red" : "w-2 bg-white/40 hover:bg-white/70"
-                }`}
-              />
+                className="flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-white"
+              ><span className={`h-2 rounded-full ${i === index ? "w-6 bg-brand-red" : "w-2 bg-white/40"}`} /></button>
             ))}
           </div>
+          <button type="button" onClick={() => setPaused(value => !value)} aria-pressed={paused} className="absolute bottom-5 right-4 rounded-full bg-black/50 px-3 py-2 text-xs font-medium">{paused ? "Play slides" : "Pause slides"}</button>
 
           <button
             type="button"

@@ -11,9 +11,8 @@ export default function ForgotPasswordPage() {
       </span>
       <h1 className="mt-2 text-3xl font-bold text-brand-black">Forgot Password</h1>
       <p className="mt-2 text-sm leading-relaxed text-zinc-600">
-        Enter the email on your club account. Resets are issued by the Secretariat in
-        person rather than automatically by email, so they will verify who you are before
-        sending you a link.
+        Enter the email on your club account to request a password-reset link.
+        If you cannot receive the email, contact admin for manual account recovery.
       </p>
 
       <ForgotForm />

@@ -1,8 +1,9 @@
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 import { ResourcesContent } from "@/components/resources-content";
 import { TerminologyContent } from "@/components/terminology-content";
 
-export const metadata: Metadata = { title: "Resources" };
+export const metadata: Metadata = publicMetadata("/resources");
 
 export default function ResourcesPage() {
   return (

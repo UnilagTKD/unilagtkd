@@ -36,7 +36,7 @@ export default async function LeavePage() {
       <div>
         <h1 className="text-2xl font-bold text-brand-black">Leave Requests</h1>
         <p className="text-sm text-zinc-500">
-          Ask to be excused from training. The Welfare Officer reviews every request.
+          Ask to be excused from training. A coach reviews each request. Coaches must have their own leave reviewed by another coach.
         </p>
       </div>
 

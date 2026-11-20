@@ -1,11 +1,13 @@
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
-import { db } from "@/db";
-import { leadership, subCommittees } from "@/db/schema";
-import { asc } from "drizzle-orm";
+import { getStructure } from "@/lib/public-content";
+import { SiteImage } from "@/components/site-image";
+
+
 import { CHAIN_OF_COMMAND } from "@/lib/constants";
 import { Reveal } from "@/components/reveal";
 
-export const metadata: Metadata = { title: "Club Structure" };
+export const metadata: Metadata = publicMetadata("/structure");
 
 function LeaderCard({
   name,
@@ -24,8 +26,7 @@ function LeaderCard({
     <Reveal delay={delay}>
       <div className="h-full rounded-xl border border-black/10 p-5 text-center transition-transform duration-200 hover:-translate-y-1 hover:shadow-md">
         {photoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <SiteImage width={80} height={80} sizes="80px"
             src={photoUrl}
             alt={name}
             className="mx-auto h-20 w-20 rounded-full object-cover"
@@ -48,17 +49,14 @@ function LeaderCard({
 }
 
 export default async function StructurePage() {
-  const [allLeadership, allSubCommittees] = await Promise.all([
-    db.select().from(leadership).orderBy(asc(leadership.displayOrder)),
-    db.select().from(subCommittees).orderBy(asc(subCommittees.name)),
-  ]);
+  const { people: allLeadership, committees: allSubCommittees } = await getStructure();
 
   const headCoach = allLeadership.filter((l) => l.category === "head_coach");
   const assistantCoaches = allLeadership.filter((l) => l.category === "assistant_coach");
   const exco = allLeadership.filter((l) => l.category === "exco");
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
       <span className="text-sm font-semibold uppercase tracking-widest text-brand-red">
         Club Structure
       </span>

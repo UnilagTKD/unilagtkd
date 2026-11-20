@@ -1,5 +1,6 @@
 import { requireRole } from "@/lib/session";
 import { db } from "@/db";
+import Link from "next/link";
 import { memberProfiles, dues, subCommittees } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { ATTENDANCE_THRESHOLDS, BANK_DETAILS } from "@/lib/constants";
@@ -11,10 +12,12 @@ export async function MemberDashboard({
   role,
   title,
   showSubCommittee = true,
+  embedded = false,
 }: {
-  role: "student" | "alumni";
+  role: "student" | "alumni" | "coach";
   title: string;
   showSubCommittee?: boolean;
+  embedded?: boolean;
 }) {
   // Exco officers are members too - their office only adds a dashboard, it does
   // not take their student one away.
@@ -62,10 +65,13 @@ export async function MemberDashboard({
   return (
     <div className="max-w-4xl space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-brand-black">
-          Welcome, {profile?.fullName ?? user.email}
-        </h1>
-        <p className="text-sm text-zinc-500">{title}</p>
+        {embedded ? <>
+          <h2 className="text-xl font-bold text-brand-black">{title}</h2>
+          <p className="text-sm text-zinc-500">{profile?.fullName ?? user.email}</p>
+        </> : <>
+          <h1 className="text-2xl font-bold text-brand-black">Welcome, {profile?.fullName ?? user.email}</h1>
+          <p className="text-sm text-zinc-500">{title}</p>
+        </>}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -77,6 +83,8 @@ export async function MemberDashboard({
           <div className="mt-1 text-xs text-zinc-500">
             Active membership requires {ATTENDANCE_THRESHOLDS.activeMembership}%+
           </div>
+          <p className="mt-1 text-xs text-zinc-500">{stats?.periodName ? `Current period: ${stats.periodName}` : "No attendance period in progress"}</p>
+          <Link href="/dashboard/attendance" className="mt-2 inline-block text-xs font-semibold text-brand-blue">Review attendance periods &rarr;</Link>
           {stats && stats.total > 0 && (
             <div className="mt-1 text-xs text-zinc-500">
               {stats.present}/{stats.total} sessions since {stats.countsFrom}
@@ -181,6 +189,7 @@ export async function MemberDashboard({
               <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                 <span>
                   {d.periodLabel}: &#8358;{d.amount}
+                  {!d.paid && !d.paymentClaimed && d.paymentDeclineReason && <span className="mt-1 block text-xs text-red-700">Claim declined: {d.paymentDeclineReason}</span>}
                 </span>
                 {d.paid ? (
                   <span className="flex-none rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">

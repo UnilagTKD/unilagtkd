@@ -1,5 +1,6 @@
 "use client";
 
+import { DOMAIN_ORIGINS, portalHref } from "@/lib/domains";
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
@@ -22,7 +23,7 @@ export function SiteHeader({ dashboardHref }: { dashboardHref?: string | null })
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-gradient-to-r from-brand-blue-light to-brand-blue-dark shadow-md backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-[1800px] items-center justify-between px-4 py-3 sm:px-6">
         <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
           <ClubLogo size={36} />
           <span className="flex flex-col leading-tight">
@@ -51,22 +52,25 @@ export function SiteHeader({ dashboardHref }: { dashboardHref?: string | null })
 
         <div className="hidden items-center gap-3 min-[900px]:flex">
           {dashboardHref ? (
+            <>
             <Link
               href={dashboardHref}
-              className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-red-dark"
+              className="text-sm font-medium text-zinc-200 hover:text-white"
             >
-              Go to Dashboard
+              Member Portal
             </Link>
+            <Link href={portalHref("/register")} className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white hover:bg-brand-red-dark">Join the Club</Link>
+            </>
           ) : (
             <>
               <Link
-                href="/login"
+                href={portalHref(DOMAIN_ORIGINS.portal ? "/dashboard" : "/login")}
                 className="text-sm font-medium text-zinc-200 hover:text-white"
               >
-                Login
+                {DOMAIN_ORIGINS.portal ? "Member Portal" : "Login"}
               </Link>
               <Link
-                href="/register"
+                href={portalHref("/register")}
                 className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-red-dark"
               >
                 Join the Club
@@ -80,6 +84,8 @@ export function SiteHeader({ dashboardHref }: { dashboardHref?: string | null })
           className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/20 min-[900px]:hidden"
           onClick={() => setOpen((v) => !v)}
           aria-label="Toggle menu"
+          aria-expanded={open}
+          aria-controls="public-mobile-menu"
         >
           <span className="sr-only">Menu</span>
           <div className="flex flex-col gap-1">
@@ -91,7 +97,7 @@ export function SiteHeader({ dashboardHref }: { dashboardHref?: string | null })
       </div>
 
       {open && (
-        <div className="border-t border-white/10 bg-brand-blue-dark px-4 py-3 min-[900px]:hidden">
+        <div id="public-mobile-menu" className="border-t border-white/10 bg-brand-blue-dark px-4 py-3 min-[900px]:hidden">
           <nav className="flex flex-col gap-3 text-sm font-medium text-zinc-200">
             {NAV_LINKS.map((link) => (
               <Link
@@ -105,20 +111,23 @@ export function SiteHeader({ dashboardHref }: { dashboardHref?: string | null })
             ))}
             <div className="mt-2 flex flex-col gap-2 border-t border-white/10 pt-3">
               {dashboardHref ? (
+                <>
                 <Link
                   href={dashboardHref}
                   onClick={() => setOpen(false)}
                   className="rounded-full bg-brand-red px-4 py-2 text-center text-white"
                 >
-                  Go to Dashboard
+                  Member Portal
                 </Link>
+                <Link href={portalHref("/register")} onClick={() => setOpen(false)} className="rounded-full border border-white/30 px-4 py-2 text-center text-white">Join the Club</Link>
+                </>
               ) : (
                 <>
-                  <Link href="/login" onClick={() => setOpen(false)} className="hover:text-white">
-                    Login
-                  </Link>
+                  <Link href={portalHref(DOMAIN_ORIGINS.portal ? "/dashboard" : "/login")} onClick={() => setOpen(false)} className="hover:text-white">
+                {DOMAIN_ORIGINS.portal ? "Member Portal" : "Login"}
+              </Link>
                   <Link
-                    href="/register"
+                    href={portalHref("/register")}
                     onClick={() => setOpen(false)}
                     className="rounded-full bg-brand-red px-4 py-2 text-center text-white"
                   >

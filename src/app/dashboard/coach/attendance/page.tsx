@@ -1,158 +1,55 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { eq, inArray } from "drizzle-orm";
 import { requireRole } from "@/lib/session";
 import { MEMBER_ROLES } from "@/lib/roles";
 import { db } from "@/db";
-import { users, memberProfiles, trainingSessions } from "@/db/schema";
-import { eq, inArray, count } from "drizzle-orm";
+import { attendancePeriodSnapshots, memberProfiles, users } from "@/db/schema";
+import { getActiveAttendancePeriod, getAttendancePeriod, listAttendancePeriods, periodSessions } from "@/lib/attendance-periods";
 import { attendanceStatsByUser } from "@/lib/attendance-data";
-import { explainExclusions, isProvisional } from "@/lib/attendance";
+import { isProvisional } from "@/lib/attendance";
 import { ATTENDANCE_THRESHOLDS } from "@/lib/constants";
+import { recordIdFromSlug, recordSlug } from "@/lib/record-slug";
+import { AttendancePeriodControls } from "./period-controls";
 
 function statusFor(pct: number | null) {
-  if (pct === null) return { label: "No Data", className: "bg-zinc-100 text-zinc-500" };
-  if (pct >= ATTENDANCE_THRESHOLDS.varsityRosterPool)
-    return { label: "Varsity Pool", className: "bg-green-100 text-green-700" };
-  if (pct >= ATTENDANCE_THRESHOLDS.promotionalGrading)
-    return { label: "Grading Eligible", className: "bg-blue-100 text-blue-700" };
-  if (pct >= ATTENDANCE_THRESHOLDS.activeMembership)
-    return { label: "Active", className: "bg-yellow-100 text-yellow-700" };
-  return { label: "Below Threshold", className: "bg-red-100 text-red-700" };
+  if (pct === null) return "No data";
+  if (pct >= ATTENDANCE_THRESHOLDS.varsityRosterPool) return "Varsity pool";
+  if (pct >= ATTENDANCE_THRESHOLDS.promotionalGrading) return "Grading eligible";
+  if (pct >= ATTENDANCE_THRESHOLDS.activeMembership) return "Active";
+  return "Below threshold";
 }
-
-export default async function CoachAttendanceDashboardPage() {
+export default async function CoachAttendanceDashboardPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
   await requireRole(["coach"]);
-
-  const [rows, [{ sessionCount }], attendanceByUser] = await Promise.all([
-    db
-      .select({
-        id: users.id,
-        email: users.email,
-        fullName: memberProfiles.fullName,
-        beltGrade: memberProfiles.beltGrade,
-      })
-      .from(users)
-      .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
-      .where(inArray(users.role, [...MEMBER_ROLES]))
-      .groupBy(users.id, memberProfiles.fullName, users.email, memberProfiles.beltGrade),
-    db.select({ sessionCount: count() }).from(trainingSessions),
-    // Counts exclude sessions before each member joined and sessions inside
-    // approved leave - see `@/lib/attendance`.
-    attendanceStatsByUser(),
-  ]);
-
-  const stats = rows
-    .map((r) => {
-      const a = attendanceByUser.get(r.id);
-      return {
-        ...r,
-        totalSessions: a?.total ?? 0,
-        presentCount: a?.present ?? 0,
-        pct: a?.pct ?? null,
-        excluded: a ? a.excludedBeforeJoining + a.excludedOnLeave : 0,
-        provisional: a ? isProvisional(a) : false,
-        exclusionNote: a ? explainExclusions(a) : null,
-      };
-    })
-    .sort((a, b) => {
-      if (a.pct === null) return 1;
-      if (b.pct === null) return -1;
-      return a.pct - b.pct;
-    });
-
-  const withData = stats.filter((s) => s.pct !== null);
-  const belowThreshold = withData.filter((s) => s.pct! < ATTENDANCE_THRESHOLDS.activeMembership).length;
-  const avgPct =
-    withData.length > 0
-      ? Math.round(withData.reduce((sum, s) => sum + s.pct!, 0) / withData.length)
-      : null;
-
-  return (
-    <div className="max-w-4xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-brand-black">Attendance Dashboard</h1>
-        <p className="text-sm text-zinc-500">
-          Attendance rates across all training sessions marked so far.
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-black/10 border-t-4 border-t-brand-blue bg-white p-5">
-          <div className="text-xs uppercase tracking-wide text-zinc-500">Sessions Logged</div>
-          <div className="mt-1 text-2xl font-bold text-brand-black">{sessionCount}</div>
-        </div>
-        <div className="rounded-xl border border-black/10 border-t-4 border-t-brand-red bg-white p-5">
-          <div className="text-xs uppercase tracking-wide text-zinc-500">Below Threshold</div>
-          <div className="mt-1 text-2xl font-bold text-brand-black">{belowThreshold}</div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Under {ATTENDANCE_THRESHOLDS.activeMembership}% active membership
-          </div>
-        </div>
-        <div className="rounded-xl border border-black/10 border-t-4 border-t-brand-blue bg-white p-5">
-          <div className="text-xs uppercase tracking-wide text-zinc-500">Average Attendance</div>
-          <div className="mt-1 text-2xl font-bold text-brand-black">
-            {avgPct !== null ? `${avgPct}%` : "-"}
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-black/10 bg-white p-6">
-        <h2 className="font-semibold text-brand-black">Roster ({stats.length})</h2>
-        {stats.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">No approved students yet.</p>
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-zinc-500">
-                <tr>
-                  <th className="py-2">Name</th>
-                  <th className="py-2">Belt / Grade</th>
-                  <th className="py-2">Sessions</th>
-                  <th className="py-2">Present</th>
-                  <th className="py-2">Attendance</th>
-                  <th className="py-2">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-black/5">
-                {stats.map((s) => {
-                  const status = statusFor(s.pct);
-                  return (
-                    <tr key={s.id}>
-                      <td className="py-2 font-medium text-brand-black">{s.fullName ?? s.email}</td>
-                      <td className="py-2 text-zinc-600">{s.beltGrade ?? "Unranked"}</td>
-                      <td className="py-2 text-zinc-600">
-                        {s.totalSessions}
-                        {s.excluded > 0 && (
-                          <span
-                            className="ml-1 cursor-help text-xs text-blue-700"
-                            title={s.exclusionNote ?? undefined}
-                          >
-                            (+{s.excluded})
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2 text-zinc-600">{s.presentCount}</td>
-                      <td className="py-2 font-semibold text-brand-black">
-                        {s.pct !== null ? `${s.pct}%` : "-"}
-                        {s.provisional && (
-                          <span className="ml-1 text-xs font-normal text-zinc-500">
-                            provisional
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${status.className}`}
-                        >
-                          {status.label}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const { period: slug } = await searchParams;
+  const id = slug ? recordIdFromSlug(slug) : undefined;
+  if (slug && !id) notFound();
+  const [active, periods, selected] = await Promise.all([getActiveAttendancePeriod(), listAttendancePeriods(), getAttendancePeriod(id ?? undefined)]);
+  if (slug && !selected) notFound();
+  const sessions = selected ? await periodSessions(selected.id) : [];
+  const liveStats = selected && !selected.closedAt ? await attendanceStatsByUser([...MEMBER_ROLES], selected.id) : new Map();
+  const snapshots = selected?.closedAt ? await db.select().from(attendancePeriodSnapshots).where(eq(attendancePeriodSnapshots.periodId, selected.id)) : [];
+  const members = selected && !selected.closedAt ? await db.select({ id: users.id, name: memberProfiles.fullName, email: users.email, beltGrade: memberProfiles.beltGrade }).from(users)
+    .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id)).where(inArray(users.role, [...MEMBER_ROLES])) : [];
+  const rows = selected?.closedAt ? snapshots.map(row => ({ id: row.id, userId: row.userId, name: row.name, beltGrade: row.beltGrade, stats: row.stats }))
+    : members.map(row => ({ id: row.id, userId: row.id, name: row.name ?? row.email, beltGrade: row.beltGrade, stats: liveStats.get(row.id) }));
+  return <div className="max-w-5xl space-y-6">
+    <header><h1 className="text-2xl font-bold">Attendance periods</h1><p className="mt-1 text-sm text-zinc-500">Member thresholds use only the period in progress. Closed periods remain available below.</p></header>
+    <AttendancePeriodControls active={active ? { id: active.id, name: active.name, startsOn: active.startsOn } : null} />
+    <nav aria-label="Attendance period archive" className="flex flex-wrap gap-2">
+      <Link href="/dashboard/coach/attendance" className="rounded-full border bg-white px-3 py-2 text-sm">Current period</Link>
+      {periods.map(period => <Link key={period.id} href={`/dashboard/coach/attendance?period=${recordSlug(period.name, period.id)}`} className="rounded-full border bg-white px-3 py-2 text-sm">{period.name} · {period.closedAt ? "Archived" : "In progress"}</Link>)}
+    </nav>
+    {selected ? <>
+      <section className="space-y-4 rounded-xl border border-black/10 bg-white p-4 sm:p-6">
+        <h2 className="text-lg font-semibold">{selected.name} {selected.closedAt && <span className="text-sm font-normal text-zinc-500">(archived, read only)</span>}</h2>
+        <p className="text-sm text-zinc-600">{selected.startsOn} – {selected.endsOn ?? "In progress"} · {sessions.length} sessions</p>
+        {selected.closedAt && <p className="text-sm text-zinc-500">These saved percentages and exclusion decisions reflect the period when it was closed. They do not affect current attendance thresholds.</p>}
+        <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="text-zinc-500"><tr><th className="py-2">Member</th><th>Belt</th><th>Present / counted</th><th>Attendance</th><th>{selected.closedAt ? "Status at closure" : "Status"}</th></tr></thead><tbody className="divide-y divide-zinc-100">
+          {rows.map(row => <tr key={row.id}><td className="py-3 font-medium">{row.userId ? <Link href={`/dashboard/attendance?member=${row.userId}&period=${recordSlug(selected.name, selected.id)}`} className="text-brand-blue hover:underline">{row.name}</Link> : row.name}</td><td>{row.beltGrade ?? "Unranked"}</td><td>{row.stats?.present ?? 0}/{row.stats?.total ?? 0}</td><td>{row.stats?.pct == null ? "—" : `${row.stats.pct}%`}{row.stats && isProvisional(row.stats) && <span className="ml-1 text-xs text-zinc-500">provisional</span>}</td><td>{statusFor(row.stats?.pct ?? null)}</td></tr>)}
+        </tbody></table></div>{!rows.length && <p className="text-sm text-zinc-500">No member attendance in this period.</p>}
+      </section>
+      <section className="rounded-xl border border-black/10 bg-white p-4 sm:p-6"><h2 className="font-semibold">Sessions in this period</h2><ul className="mt-3 divide-y divide-zinc-100">{sessions.map(session => <li key={session.id} className="flex flex-wrap justify-between gap-2 py-3 text-sm"><span>{session.title} · {session.date}</span><Link href={`/dashboard/coach/attendance/${recordSlug(session.title, session.id)}`} className="font-medium text-brand-blue">{selected.closedAt ? "Review saved register" : "Record / review attendance"}</Link></li>)}</ul>{!sessions.length && <p className="mt-3 text-sm text-zinc-500">No sessions yet. Create training sessions from the coach dashboard.</p>}</section>
+    </> : <p className="rounded-xl bg-white p-5 text-sm text-zinc-600">No active attendance period. Past periods can still be reviewed using the archive links.</p>}
+  </div>;
 }

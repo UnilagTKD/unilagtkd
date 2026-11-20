@@ -55,7 +55,7 @@ function WhyJoinIcon({ icon }: { icon: string }) {
 
 type SubCommittee = { id: string; name: string; description: string | null };
 
-export function AuthSplit({ subCommittees }: { subCommittees: SubCommittee[] }) {
+export function AuthSplit({ subCommittees, semester }: { subCommittees: SubCommittee[]; semester: { label: string; amount: string } }) {
   const router = useRouter();
   const [transitioning, setTransitioning] = useState(false);
 
@@ -76,7 +76,7 @@ export function AuthSplit({ subCommittees }: { subCommittees: SubCommittee[] }) 
           <span className="inline-flex items-center rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/80">
             Already a Member?
           </span>
-          <h2 className="mt-3 text-2xl font-bold sm:text-3xl">Welcome Back, Champion.</h2>
+          <h2 className="mt-3 text-2xl font-bold sm:text-3xl">Welcome back, Champ.</h2>
           <p className="mt-2 text-sm text-zinc-200">
             Your dashboard is right where you left it.
           </p>
@@ -113,7 +113,7 @@ export function AuthSplit({ subCommittees }: { subCommittees: SubCommittee[] }) 
             <span className="inline-flex items-center rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white/80">
               Already a Member?
             </span>
-            <h1 className="mt-4 text-4xl font-bold leading-tight">Welcome Back, Champion.</h1>
+            <h1 className="mt-4 text-4xl font-bold leading-tight">Welcome back, Champ.</h1>
             <p className="mt-3 text-sm text-zinc-200">
               Your dashboard, training log, and dues are right where you left
               them. Log back in to pick up where you left off.
@@ -169,7 +169,7 @@ export function AuthSplit({ subCommittees }: { subCommittees: SubCommittee[] }) 
             </h1>
             <p className="mt-4 text-zinc-600">
               Complete the form below to apply for membership. Your
-              application will be reviewed by the Executive Committee.
+              application will be reviewed by an administrator.
               You&apos;ll be contacted once it has been processed. This
               combines the club&apos;s Membership Application (UTC-A01) and
               Liability Waiver (UTC-W01).
@@ -177,7 +177,7 @@ export function AuthSplit({ subCommittees }: { subCommittees: SubCommittee[] }) 
           </div>
 
           <div className="animate-fade-in-up animate-delay-1">
-            <RegisterForm subCommittees={subCommittees} />
+            <RegisterForm subCommittees={subCommittees} semester={semester} />
           </div>
         </div>
       </div>

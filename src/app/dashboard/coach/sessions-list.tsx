@@ -1,4 +1,6 @@
 "use client";
+import { recordSlug } from "@/lib/record-slug";
+
 
 import { useState } from "react";
 import Link from "next/link";
@@ -146,10 +148,10 @@ export function SessionsList({ sessions }: { sessions: Session[] }) {
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-none">
               <Link
-                href={`/dashboard/coach/attendance/${s.id}`}
+                href={`/dashboard/coach/attendance/${recordSlug(s.title, s.id)}`}
                 className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-brand-black hover:bg-zinc-50"
               >
-                {s.endedAt ? "View Attendance" : "Mark Attendance"}
+                Record Attendance
               </Link>
               <button
                 type="button"

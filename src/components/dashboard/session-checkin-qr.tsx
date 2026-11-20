@@ -1,3 +1,4 @@
+import { recordSlug } from "@/lib/record-slug";
 import "server-only";
 
 import QRCode from "qrcode";
@@ -11,7 +12,7 @@ export async function SessionCheckInQr({
   title: string;
 }) {
   const baseUrl = await getBaseUrl();
-  const checkInUrl = `${baseUrl}/dashboard/checkin/${sessionId}`;
+  const checkInUrl = `${baseUrl}/dashboard/checkin/${recordSlug(title, sessionId)}`;
   const qrDataUrl = await QRCode.toDataURL(checkInUrl, { margin: 1, width: 220 });
 
   return (

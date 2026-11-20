@@ -3,28 +3,35 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { reviewApplication } from "@/app/dashboard/actions";
-import type { applications } from "@/db/schema";
-
-type Application = typeof applications.$inferSelect;
+import type { ApplicationReviewData as Application } from "@/lib/application-review-data";
 
 export function ApplicationReview({ application }: { application: Application }) {
   const router = useRouter();
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState<"approved" | "rejected" | null>(null);
   const [setupLink, setSetupLink] = useState<string | null>(null);
+  const [approved, setApproved] = useState(false);
+  const [surname, setSurname] = useState(application.surname ?? application.fullName.trim().split(/\s+/)[0]);
+  const [error, setError] = useState<string | null>(null);
   const [emailSent, setEmailSent] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   async function decide(decision: "approved" | "rejected") {
     setSubmitting(decision);
-    const result = await reviewApplication(application.id, decision, notes);
-    setSubmitting(null);
+    setError(null);
+    try {
+    const result = await reviewApplication(application.id, decision, notes, surname);
     if (result.setupLink) {
       setSetupLink(result.setupLink);
       setEmailSent(Boolean("emailSent" in result && result.emailSent));
     }
-    router.refresh();
+    if (decision === "approved") { setApproved(true); setEmailSent(Boolean("emailSent" in result && result.emailSent)); }
+    else router.refresh();
+    } catch { setError("Could not review this application. Check the surname and try again."); }
+    finally { setSubmitting(null); }
   }
+
+  if (approved) return <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900"><p className="font-semibold">{application.fullName} approved.</p><p className="mt-2">They can now log in with their registered email and their surname in lowercase. They can update their password in Settings.</p><p className="mt-2">{emailSent ? "A sign-in notification was emailed to the member." : "Email could not be sent. Share these login instructions with the member directly."}</p><button type="button" onClick={() => router.refresh()} className="mt-3 font-semibold underline">Done</button></div>;
 
   if (setupLink) {
     return (
@@ -80,6 +87,8 @@ export function ApplicationReview({ application }: { application: Application })
           <div><dt className="text-zinc-400">Matric/Staff No.</dt><dd>{application.matricOrStaffNo || "-"}</dd></div>
           <div><dt className="text-zinc-400">Phone</dt><dd>{application.phone}</dd></div>
           <div><dt className="text-zinc-400">Faculty / Level</dt><dd>{application.faculty} / {application.levelYear || "-"}</dd></div>
+          <div><dt className="text-zinc-400">Graduation year</dt><dd>{application.graduationYear || "-"}</dd></div>
+          <div><dt className="text-zinc-400">Institution / Occupation</dt><dd>{application.institution || "-"} / {application.occupation || "-"}</dd></div>
           <div><dt className="text-zinc-400">Prior Training</dt><dd>{application.priorTraining ? `Yes (${application.beltGrade || "unspecified"})` : "No"}</dd></div>
           <div><dt className="text-zinc-400">Emergency Contact</dt><dd>{application.emergencyContactName} ({application.emergencyContactRelationship}), {application.emergencyContactPhone}</dd></div>
           <div><dt className="text-zinc-400">Blood Group / Genotype</dt><dd>{application.bloodGroup || "-"} / {application.genotype || "-"}</dd></div>
@@ -94,15 +103,18 @@ export function ApplicationReview({ application }: { application: Application })
         rows={2}
         className="mt-3 w-full rounded-lg border border-zinc-300 px-3 py-2 text-xs"
       />
+      <p className="mt-3 text-sm text-zinc-600">Semester dues: {application.semesterLabel || "Not supplied"} · ₦{Number(application.semesterDues || 0).toLocaleString("en-NG")} · {application.paymentStatus}</p>
+      <label className="mt-3 block text-xs font-medium text-zinc-700">Confirm surname for initial login<input value={surname} onChange={event => setSurname(event.target.value)} maxLength={100} className="mt-1 block w-full rounded-lg border border-zinc-300 px-3 py-2" /></label>
+      {error && <p role="alert" className="mt-2 text-xs text-red-700">{error}</p>}
 
       <div className="mt-3 flex gap-3">
         <button
           type="button"
-          disabled={submitting !== null}
+          disabled={submitting !== null || application.paymentStatus !== "confirmed"}
           onClick={() => decide("approved")}
           className="rounded-full bg-brand-red px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
         >
-          {submitting === "approved" ? "Approving..." : "Approve"}
+          {submitting === "approved" ? "Approving..." : application.paymentStatus === "confirmed" ? "Approve" : "Awaiting payment confirmation"}
         </button>
         <button
           type="button"

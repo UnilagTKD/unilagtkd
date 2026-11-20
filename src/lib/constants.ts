@@ -159,12 +159,11 @@ export const MEDAL_STYLES: Record<string, string> = {
   bronze: "bg-orange-100 text-orange-800",
 };
 
-// Placeholder bank details for the manual bank-transfer dues process.
-// Replace with the club's real account details before going live.
+// Payment details for the manual bank-transfer dues process.
 export const BANK_DETAILS = {
-  bankName: "Demo Bank Plc",
-  accountName: "UNILAG Taekwondo Club",
-  accountNumber: "0000000000",
+  bankName: "PalmPay",
+  accountName: "Salaudeen Sofiyat",
+  accountNumber: "9068315569",
   instructions:
     "Transfer your dues to the account above, using your full name and matric/staff number as the transfer narration. Then submit your payment reference below so the Treasurer can confirm it and issue your official receipt (UTC-R).",
 };

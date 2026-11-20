@@ -1,3 +1,9 @@
+import { SessionExpiryRefresh } from "@/components/dashboard/session-expiry-refresh";
+import { sessionExpiresAt } from "@/lib/training-session";
+import Link from "next/link";
+import { expireTrainingSessions } from "@/lib/training-session-data";
+import { sessionHasEnded, sessionStartsAt } from "@/lib/training-session";
+import { ProfileChangeReviewPanel } from "@/components/dashboard/profile-change-review-panel";
 import { requireRole } from "@/lib/session";
 import { MEMBER_ROLES } from "@/lib/roles";
 import { db } from "@/db";
@@ -7,21 +13,22 @@ import {
   subCommittees,
   trainingSessions,
   announcements,
-  applications,
+  leaveRequests,
 } from "@/db/schema";
 import { desc, eq, inArray, or } from "drizzle-orm";
 import { CreateSessionForm } from "./create-session-form";
 import { SessionsList } from "./sessions-list";
-import { ApplicationReview } from "@/components/dashboard/application-review";
 import { MemberRegister } from "@/components/dashboard/member-register";
 import { SessionCheckInQr } from "@/components/dashboard/session-checkin-qr";
-import { UsersRolesTable } from "@/components/dashboard/users-roles-table";
-import { toDateInput } from "@/lib/dates";
+import { LeaveRequestsPanel } from "../exco/leave-requests-panel";
+import { getActiveAttendancePeriod, periodSessionFilter } from "@/lib/attendance-periods";
 
 export default async function CoachDashboardPage() {
   const coach = await requireRole(["coach"]);
+  await expireTrainingSessions();
+  const period = await getActiveAttendancePeriod();
 
-  const [roster, sessions, coachAnnouncements, pendingApplications, allUsersForRoles] =
+  const [roster, sessions, coachAnnouncements, leaveRows] =
     await Promise.all([
       db
         .select({
@@ -39,33 +46,33 @@ export default async function CoachDashboardPage() {
         .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
         .leftJoin(subCommittees, eq(subCommittees.id, memberProfiles.assignedSubCommitteeId))
         .where(inArray(users.role, [...MEMBER_ROLES])),
-      db.select().from(trainingSessions).orderBy(desc(trainingSessions.date)),
+      db.select().from(trainingSessions).where(periodSessionFilter(period?.id)).orderBy(desc(trainingSessions.date)),
       db
         .select()
         .from(announcements)
         .where(or(eq(announcements.audience, "all"), eq(announcements.audience, "coaches")))
         .orderBy(desc(announcements.createdAt)),
       db
-        .select()
-        .from(applications)
-        .where(eq(applications.status, "pending"))
-        .orderBy(desc(applications.createdAt)),
-      db
         .select({
-          id: users.id,
-          email: users.email,
-          role: users.role,
-          excoPosition: users.excoPosition,
-          status: users.status,
-          fullName: memberProfiles.fullName,
+          id: leaveRequests.id,
+          userId: leaveRequests.userId,
+          reasonCategory: leaveRequests.reasonCategory,
+          startDate: leaveRequests.startDate,
+          endDate: leaveRequests.endDate,
+          details: leaveRequests.details,
+          status: leaveRequests.status,
+          reviewNotes: leaveRequests.reviewNotes,
+          memberName: memberProfiles.fullName,
+          memberEmail: users.email,
         })
-        .from(users)
+        .from(leaveRequests)
+        .innerJoin(users, eq(leaveRequests.userId, users.id))
         .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
-        .orderBy(desc(users.createdAt)),
+        .orderBy(desc(leaveRequests.createdAt)),
     ]);
 
   const activeSession =
-    sessions.find((s) => s.date === toDateInput(new Date()) && !s.endedAt) ?? null;
+    sessions.find((s) => new Date() >= sessionStartsAt(s) && !sessionHasEnded(s)) ?? null;
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -74,33 +81,21 @@ export default async function CoachDashboardPage() {
         <p className="text-sm text-zinc-500">Roster, schedule, and attendance</p>
       </div>
 
+<Link href="/dashboard/coach/members" className="inline-block rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white">View Members</Link>
+      {activeSession && <SessionExpiryRefresh deadline={sessionExpiresAt(activeSession).toISOString()} />}
       {activeSession && (
         <SessionCheckInQr sessionId={activeSession.id} title={activeSession.title} />
       )}
 
-      {pendingApplications.length > 0 && (
-        <div className="rounded-xl border border-black/10 bg-white p-6">
-          <h2 className="font-semibold text-brand-black">
-            Pending Applications ({pendingApplications.length})
-          </h2>
-          <p className="mt-1 text-xs text-zinc-500">
-            Approving activates the applicant&apos;s account and hands you a setup link to
-            share with them.
-          </p>
-          <div className="mt-4 space-y-4">
-            {pendingApplications.map((a) => (
-              <ApplicationReview key={a.id} application={a} />
-            ))}
-          </div>
-        </div>
-      )}
+
 
       <div className="rounded-xl border border-black/10 bg-white p-6">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-brand-black">Training Sessions</h2>
-          <CreateSessionForm />
+          {period && <CreateSessionForm />}
         </div>
         <SessionsList sessions={sessions} />
+        <p className="mt-3 text-sm text-zinc-500">{period ? `Monitoring: ${period.name}` : "Start an attendance period before adding sessions."} <Link href="/dashboard/coach/attendance" className="font-medium text-brand-blue">Manage periods and archives &rarr;</Link></p>
       </div>
 
       <div className="rounded-xl border border-black/10 bg-white p-6">
@@ -126,7 +121,23 @@ export default async function CoachDashboardPage() {
         )}
       </div>
 
-      <UsersRolesTable rows={allUsersForRoles} currentUserId={coach.id} />
+      <Link href="/dashboard/coach/exco" className="inline-block rounded-full border border-brand-red px-4 py-2 text-sm font-semibold text-brand-red">Exco appointments</Link>
+      <ProfileChangeReviewPanel />
+
+      <LeaveRequestsPanel
+        reviewerId={coach.id}
+        requests={leaveRows.map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          memberName: r.memberName ?? r.memberEmail,
+          reasonCategory: r.reasonCategory,
+          startDate: r.startDate,
+          endDate: r.endDate,
+          details: r.details,
+          status: r.status,
+          reviewNotes: r.reviewNotes,
+        }))}
+      />
 
       <MemberRegister
         note="Everyone on the training register, with contact, grading, and sub-committee details."

@@ -19,7 +19,9 @@
  * Run with: npm run db:seed
  */
 import { hash } from "bcryptjs";
-import { db } from "./index";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "./schema";
 import {
   users,
   memberProfiles,
@@ -37,8 +39,21 @@ import {
   insights,
 } from "./schema";
 import { eq } from "drizzle-orm";
+import { isNull } from "drizzle-orm";
+import { attendancePeriods } from "./schema";
 
-const DEMO_PASSWORD = "Demo1234!";
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is not set");
+}
+
+const client = postgres(process.env.DATABASE_URL, { prepare: false });
+const db = drizzle(client, { schema });
+
+if (process.env.NODE_ENV === "production" || process.env.ALLOW_DEMO_SEED !== "true") {
+  throw new Error("Demo seeding is disabled. Use an isolated development database and explicitly set ALLOW_DEMO_SEED=true.");
+}
+const DEMO_PASSWORD = process.env.DEMO_SEED_PASSWORD ?? "";
+if (DEMO_PASSWORD.length < 12) throw new Error("Set a private DEMO_SEED_PASSWORD of at least 12 characters.");
 
 function placeholderImage(seed: string) {
   return `https://picsum.photos/seed/${seed}/800/600`;
@@ -166,23 +181,38 @@ async function main() {
   }
 
   console.log("Seeding sub-committees...");
-  const subCommitteeRows = await db
-    .insert(subCommittees)
-    .values([
-      {
-        name: "Administrative & Media",
-        description: "Handles club communications, record-keeping, and media/publicity.",
-      },
-      {
-        name: "Logistics & Operations",
-        description: "Handles equipment, venue coordination, and event logistics.",
-      },
-      {
-        name: "Welfare & Medical Safety",
-        description: "Handles member welfare, first aid readiness, and medical safety.",
-      },
-    ])
-    .returning({ id: subCommittees.id, name: subCommittees.name });
+  const defaultSubCommittees = [
+    {
+      name: "Administrative & Media",
+      description: "Handles club communications, record-keeping, and media/publicity.",
+    },
+    {
+      name: "Logistics & Operations",
+      description: "Handles equipment, venue coordination, and event logistics.",
+    },
+    {
+      name: "Welfare & Medical Safety",
+      description: "Handles member welfare, first aid readiness, and medical safety.",
+    },
+  ];
+  const committeeByName = new Map(
+    (await db.select({ id: subCommittees.id, name: subCommittees.name }).from(subCommittees)).map(
+      (committee) => [committee.name, committee]
+    )
+  );
+  const missingCommittees = defaultSubCommittees.filter(
+    (committee) => !committeeByName.has(committee.name)
+  );
+  if (missingCommittees.length > 0) {
+    const insertedCommittees = await db
+      .insert(subCommittees)
+      .values(missingCommittees)
+      .returning({ id: subCommittees.id, name: subCommittees.name });
+    for (const committee of insertedCommittees) {
+      committeeByName.set(committee.name, committee);
+    }
+  }
+  const subCommitteeRows = [...committeeByName.values()];
 
   const adminMediaCommittee = subCommitteeRows.find((c) => c.name === "Administrative & Media")!;
   const logisticsCommittee = subCommitteeRows.find((c) => c.name === "Logistics & Operations")!;
@@ -348,10 +378,13 @@ async function main() {
   });
 
   console.log("Seeding training sessions + attendance...");
+  const [existingPeriod] = await db.select().from(attendancePeriods).where(isNull(attendancePeriods.closedAt)).limit(1);
+  const period = existingPeriod ?? (await db.insert(attendancePeriods).values({ name: "Demo training period", startsOn: "2026-01-01", openedBy: coachUser.id }).returning())[0];
   const [session1] = await db
     .insert(trainingSessions)
     .values({
       title: "General Training",
+      periodId: period.id,
       date: "2026-08-15",
       startTime: "16:00",
       endTime: "18:00",
@@ -365,6 +398,7 @@ async function main() {
     .insert(trainingSessions)
     .values({
       title: "Sparring & Conditioning",
+      periodId: period.id,
       date: "2026-08-18",
       startTime: "16:00",
       endTime: "18:00",
@@ -585,20 +619,12 @@ async function main() {
     },
   ]);
 
-  console.log("\nDone. Demo login credentials (all fictional accounts):");
-  console.log("  student@demo.unilagtkd.example / " + DEMO_PASSWORD);
-  console.log("  coach@demo.unilagtkd.example   / " + DEMO_PASSWORD);
-  console.log("  exco@demo.unilagtkd.example    / " + DEMO_PASSWORD + "  (president)");
-  console.log("  vp@demo.unilagtkd.example      / " + DEMO_PASSWORD + "  (vice president)");
-  console.log("  secretary@demo.unilagtkd.example / " + DEMO_PASSWORD + "  (general secretary)");
-  console.log("  treasurer@demo.unilagtkd.example / " + DEMO_PASSWORD + "  (treasurer)");
-  console.log("  welfare@demo.unilagtkd.example / " + DEMO_PASSWORD + "  (welfare officer)");
-  console.log("  alumni@demo.unilagtkd.example  / " + DEMO_PASSWORD);
+  console.log("Demo seeding complete. Password is the private DEMO_SEED_PASSWORD; it is never logged.");
 }
 
 main()
-  .then(() => process.exit(0))
   .catch((err) => {
     console.error(err);
-    process.exit(1);
-  });
+    process.exitCode = 1;
+  })
+  .finally(() => client.end());

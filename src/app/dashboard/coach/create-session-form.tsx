@@ -23,6 +23,7 @@ export function CreateSessionForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [startTime, setStartTime] = useState("16:30");
   const [endTime, setEndTime] = useState(addHours("16:30", SESSION_LENGTH_HOURS));
 
@@ -30,6 +31,8 @@ export function CreateSessionForm() {
     e.preventDefault();
     setSubmitting(true);
     const form = new FormData(e.currentTarget);
+    setError(null);
+    try {
     await createTrainingSession({
       title: String(form.get("title")),
       date: String(form.get("date")),
@@ -41,6 +44,8 @@ export function CreateSessionForm() {
     setSubmitting(false);
     setOpen(false);
     router.refresh();
+    } catch { setError("Could not create this session. Check that an attendance period is open and the date falls within it."); }
+    finally { setSubmitting(false); }
   }
 
   if (!open) {
@@ -57,6 +62,7 @@ export function CreateSessionForm() {
 
   return (
     <form onSubmit={onSubmit} className="space-y-4 rounded-xl border border-black/10 bg-white p-5">
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       <Field label="Title">
         <select name="title" required className={inputClass} defaultValue={TRAINING_SESSION_TITLES[0]}>
           {TRAINING_SESSION_TITLES.map((title) => (

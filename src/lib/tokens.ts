@@ -1,4 +1,26 @@
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
+
+export function isValidToken(token: unknown): token is string {
+  return typeof token === "string" && /^[a-f0-9]{64}$/.test(token);
+}
+
+export function storedToken(token: string) {
+  return `sha256:${hashToken(token)}`;
+}
+
+export function generateExaminerToken() {
+  return randomBytes(32).toString("hex");
+}
+
+export function hashToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function examinerTokenExpiry(days = 7) {
+  const expires = new Date();
+  expires.setDate(expires.getDate() + days);
+  return expires;
+}
 
 export function generateSetupToken() {
   return randomBytes(32).toString("hex");

@@ -4,43 +4,51 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Field, inputClass } from "@/components/form/fields";
 import { PhotoUpload } from "@/components/form/photo-upload";
-import { createGalleryItem } from "@/app/dashboard/actions";
+import type { galleryItems } from "@/db/schema";
+import { createGalleryItem, updateGalleryItem } from "@/app/dashboard/actions";
 
-export function GalleryForm() {
+export function GalleryForm({ initial }: { initial?: typeof galleryItems.$inferSelect }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [imageUrl, setImageUrl] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? "");
   const [imageError, setImageError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setImageError(null);
-    if (!imageUrl) {
-      setImageError("Upload a photo.");
-      return;
+    setError(null);
+    try {
+      setImageError(null);
+      if (!imageUrl) {
+        setImageError("Upload a photo.");
+        return;
+      }
+      setSubmitting(true);
+      const form = new FormData(e.currentTarget);
+      await (initial ? (data: Parameters<typeof createGalleryItem>[0]) => updateGalleryItem(initial.id, data) : createGalleryItem)({
+        imageUrl,
+        caption: String(form.get("caption") || ""),
+        category: form.get("category") as "training" | "demo" | "tournament",
+      });
+      setOpen(false);
+      setImageUrl(initial?.imageUrl ?? "");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save content.");
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(true);
-    const form = new FormData(e.currentTarget);
-    await createGalleryItem({
-      imageUrl,
-      caption: String(form.get("caption") || ""),
-      category: form.get("category") as "training" | "demo" | "tournament",
-    });
-    setSubmitting(false);
-    setOpen(false);
-    setImageUrl("");
-    router.refresh();
   }
 
   if (!open) {
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => { setImageUrl(initial?.imageUrl ?? ""); setError(null); setOpen(true); }}
         className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white hover:bg-brand-red-dark"
       >
-        + Add Photo
+        {initial ? "Edit" : "+ Add Photo"}
       </button>
     );
   }
@@ -62,15 +70,16 @@ export function GalleryForm() {
         />
       </Field>
       <Field label="Caption">
-        <input name="caption" className={inputClass} />
+        <input defaultValue={initial?.caption ?? ""} name="caption" className={inputClass} />
       </Field>
       <Field label="Category">
-        <select name="category" className={inputClass} defaultValue="training">
+        <select name="category" className={inputClass} defaultValue={initial?.category ?? "training"}>
           <option value="training">Training</option>
           <option value="demo">Demonstration</option>
           <option value="tournament">Tournament</option>
         </select>
       </Field>
+      {error && <p role="alert" className="text-sm text-red-600 sm:col-span-2">{error}</p>}
       <div className="flex gap-3 sm:col-span-2">
         <button
           type="submit"

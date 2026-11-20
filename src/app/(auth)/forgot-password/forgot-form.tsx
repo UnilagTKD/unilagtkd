@@ -9,13 +9,19 @@ export function ForgotForm() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    await requestPasswordReset(email);
-    setLoading(false);
-    setSent(true);
+    setError(null);
+    try {
+      const result = await requestPasswordReset(email);
+      if (result.ok) { setEmailEnabled(result.emailEnabled); setSent(true); }
+      else setError(result.error);
+    } catch { setError("We couldn't send your request. Please try again or contact admin."); }
+    finally { setLoading(false); }
   }
 
   if (sent) {
@@ -23,9 +29,7 @@ export function ForgotForm() {
       <div className="mt-6 rounded-xl border border-green-200 bg-green-50 p-6 text-sm text-green-800">
         <p className="font-semibold">Request received.</p>
         <p className="mt-2 leading-relaxed">
-          If that address belongs to a club account, the Secretariat has been notified.
-          They will confirm your identity and send you a reset link directly, so please
-          contact them if you do not hear back.
+          {emailEnabled ? "If that address belongs to an active club account, check your inbox and spam folder for a reset link. If no email arrives, contact admin for manual recovery." : "If that address belongs to an active club account, admin will see the recovery request. Contact admin to verify your identity and receive a reset link."}
         </p>
         <p className="mt-3">
           <Link href="/login" className="font-semibold underline">
@@ -57,6 +61,7 @@ export function ForgotForm() {
       >
         {loading ? "Sending..." : "Request Password Reset"}
       </button>
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
 
       <p className="text-center text-sm text-zinc-500">
         <Link href="/login" className="hover:underline">

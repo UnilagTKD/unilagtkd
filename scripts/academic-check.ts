@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import { academicInfoError } from "../src/lib/validation/academic";
+import { profileSchema } from "../src/lib/validation/profile";
+const student = { membershipCategory: "undergraduate", matricOrStaffNo: "TEST/001", department: "Computer Science", faculty: "Science", levelYear: "200" };
+assert.equal(academicInfoError(student), null);
+assert.ok(academicInfoError({ ...student, matricOrStaffNo: "" }));
+assert.ok(academicInfoError({ ...student, membershipCategory: "alumni" }));
+assert.equal(academicInfoError({ ...student, membershipCategory: "alumni", graduationYear: "2025" }), null);
+assert.ok(academicInfoError({ ...student, membershipCategory: "alumni", graduationYear: "2999" }));
+assert.equal(academicInfoError({ membershipCategory: "staff", matricOrStaffNo: "STAFF/001", department: "Library", institution: "University of Lagos" }), null);
+assert.ok(academicInfoError({ membershipCategory: "staff", matricOrStaffNo: "STAFF/001", department: "Library" }));
+assert.equal(academicInfoError({ membershipCategory: "non_student", occupation: "Self-employed" }), null);
+assert.ok(academicInfoError({ membershipCategory: "non_student" }));
+assert.equal(profileSchema.safeParse({ levelYear: "200", phone: "", address: "", beltGrade: "", membershipCategory: "admin" }).success, false);
+assert.equal(profileSchema.safeParse({ levelYear: "200", phone: "", address: "", beltGrade: "", fullName: "Changed" }).success, false);
+console.log("Academic requirements, graduation-year validation, Staff identity requirements, and privilege/name field rejection passed.");

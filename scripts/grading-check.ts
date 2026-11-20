@@ -1,15 +1,15 @@
+import { canAppointExco, canReviewProfileChange } from "@/lib/verification-permissions";
 import {
   resolveRank,
   rankLabel,
   buildPromotion,
   promotionTargets,
   canPromoteTo,
-  assessGrading,
   checkEligibility,
   gradingOptions,
   criteriaFor,
-  weightsFor,
-  suggestedAward,
+  GRADING_DECISIONS,
+  isGradingDecision,
   beltOf,
   beltById,
   beltPoomsae,
@@ -18,6 +18,7 @@ import {
   RANKS,
   rankById,
 } from "@/lib/grading";
+import { excoPermissions, canManageReceiptSignature } from "@/lib/exco";
 
 let failures = 0;
 function check(name: string, actual: unknown, expected: unknown) {
@@ -35,10 +36,6 @@ const belt = (id: string) => beltById(id)!;
 const rank = (id: string) => rankById(id)!;
 
 console.log("--- belt ladder integrity ---");
-for (const b of BELTS) {
-  const sum = Object.values(weightsFor(b)).reduce((x, y) => x + y, 0);
-  check(`weights ${b.id} (${b.band}) sum to 100`, sum, 100);
-}
 check(
   "every rank belongs to exactly one belt",
   RANKS.every((r) => beltOf(r) !== undefined),
@@ -97,8 +94,6 @@ check("single poomsae = whole Yellow belt", single.requiredPoomsae, [
   "Taegeuk Ee Jang",
 ]);
 check("single awardable geups", single.awardable.map((r) => r.id), ["8th-geup", "7th-geup"]);
-check("single pass mark", single.passMark, 70);
-check("single min per component", single.minCriterionScore, 5);
 check("single time-in-grade (White = 3)", single.minMonthsRequired, 3);
 
 const double = buildPromotion(rank("10th-geup"), belt("blue"));
@@ -111,8 +106,6 @@ check("double poomsae = Yellow + Blue", double.requiredPoomsae, [
   "Taegeuk Sa Jang",
 ]);
 check("double awardable geups", double.awardable.map((r) => r.id), ["6th-geup", "5th-geup"]);
-check("double pass mark", double.passMark, 80);
-check("double min per component", double.minCriterionScore, 6);
 check("double time-in-grade = White 3 + Yellow 6", double.minMonthsRequired, 9);
 
 console.log("\n--- coach picks the geup ---");
@@ -121,60 +114,40 @@ check("Yellow awardable", awardableRanks(belt("yellow")).map((r) => r.grade), [
   "7th Geup",
 ]);
 check("Yellow poomsae", beltPoomsae(belt("yellow")), ["Taegeuk Il Jang", "Taegeuk Ee Jang"]);
-check("pass suggests bottom of belt", suggestedAward(single, "pass")?.id, "8th-geup");
-check("distinction suggests top of belt", suggestedAward(single, "distinction")?.id, "7th-geup");
-check("fail suggests nothing", suggestedAward(single, "fail"), null);
-check("absent suggests nothing", suggestedAward(single, "absent"), null);
+check("manual grading decisions", GRADING_DECISIONS, ["pending", "distinction", "pass", "fail"]);
+check("pass is a valid manual decision", isGradingDecision("pass"), true);
+check("invalid decisions are rejected", isGradingDecision("automatic"), false);
 check("White has a single grade only", awardableRanks(belt("white")).length, 1);
 
-console.log("\n--- scoring ---");
-// Yellow is the beginner band: basics 40, poomsae 35, hoshinsul 10, theory 15.
+console.log("\n--- leave permissions ---");
+check("Treasurer can manage receipt signature", canManageReceiptSignature("exco", "treasurer"), true);
+check("President cannot manage receipt signature", canManageReceiptSignature("exco", "president"), false);
+check("Admin Secretary cannot manage receipt signature", canManageReceiptSignature("admin", "general_secretary"), false);
+check("Admin holding Treasurer can manage receipt signature", canManageReceiptSignature("admin", "treasurer"), true);
+check("Secretary cannot verify account recovery", excoPermissions("admin", "general_secretary").includes("password_resets:manage"), false);
+check("Admin without an office has no Exco permissions", excoPermissions("admin", null), []);
 check(
-  "beginner criteria",
-  criteriaFor(belt("yellow")).map((c) => c.id),
-  ["basics", "poomsae", "hoshinsul", "theory"]
+  "President cannot review leave",
+  excoPermissions("exco", "president").includes("leave:review"),
+  false
 );
 check(
-  "advanced criteria (Red)",
-  criteriaFor(belt("red")).map((c) => c.id),
+  "Welfare cannot review leave",
+  excoPermissions("exco", "welfare_officer").includes("leave:review"),
+  false
+);
+check(
+  "Welfare can see approved leave",
+  excoPermissions("exco", "welfare_officer").includes("leave:view_approved"),
+  true
+);
+
+console.log("\n--- marks ---");
+check(
+  "coaches can mark every criterion at every rank",
+  criteriaFor().map((c) => c.id),
   ["basics", "poomsae", "kyorugi", "kyukpa", "hoshinsul", "theory"]
 );
-
-// A double into Blue is examined on BLUE.s syllabus - the intermediate band,
-// which adds sparring and breaking. Skipping a belt does not skip its material.
-const eights = { basics: 8, poomsae: 8, hoshinsul: 8, theory: 8 };
-const eightsFull = { ...eights, kyorugi: 8, kyukpa: 8 };
-const sevensFull = { basics: 7, poomsae: 7, hoshinsul: 7, theory: 7, kyorugi: 7, kyukpa: 7 };
-const ninesFull = { basics: 9, poomsae: 9, hoshinsul: 9, theory: 9, kyorugi: 9, kyukpa: 9 };
-const poomsaeFiveFull = { basics: 10, poomsae: 5, hoshinsul: 10, theory: 10, kyorugi: 10, kyukpa: 10 };
-check(
-  "double into Blue is examined on Blue material",
-  criteriaFor(belt("blue")).map((c) => c.id),
-  ["basics", "poomsae", "kyorugi", "kyukpa", "hoshinsul", "theory"]
-);
-check("beginner marks alone leave a Blue double unmarked", assessGrading(double, eights).outcome, "pending");
-check("all 8s -> 80%", assessGrading(single, eights).total, 80);
-check("all 8s single -> pass", assessGrading(single, eights).outcome, "pass");
-check("all 8s double -> pass (80 = double pass mark)", assessGrading(double, eightsFull).outcome, "pass");
-
-const sevens = { basics: 7, poomsae: 7, hoshinsul: 7, theory: 7 };
-check("all 7s single -> pass", assessGrading(single, sevens).outcome, "pass");
-check("all 7s double -> fail (70 < 80)", assessGrading(double, sevensFull).outcome, "fail");
-
-const nines = { basics: 9, poomsae: 9, hoshinsul: 9, theory: 9 };
-check("all 9s single -> distinction", assessGrading(single, nines).outcome, "distinction");
-check("all 9s double -> distinction (90 = double distinction)", assessGrading(double, ninesFull).outcome, "distinction");
-
-// The mandatory floor overrides a comfortable total, and the double floor is higher.
-const poomsaeFive = { basics: 10, poomsae: 5, hoshinsul: 10, theory: 10 };
-check("poomsae 5 single -> pass", assessGrading(single, poomsaeFive).outcome, "pass");
-check("poomsae 5 double -> fail on floor (double floor is 6)", assessGrading(double, poomsaeFiveFull).outcome, "fail");
-check(
-  "floor shortfall names the component",
-  assessGrading(double, poomsaeFiveFull).shortfalls,
-  ["Poomsae"]
-);
-check("unmarked -> pending", assessGrading(single, { basics: 8 }).outcome, "pending");
 
 console.log("\n--- eligibility ---");
 const base = {
@@ -251,10 +224,7 @@ check(
   ["yellow:true", "blue:false"]
 );
 
-console.log("\n--- sample messages ---");
-console.log(" ", assessGrading(double, ninesFull).summary);
-console.log(" ", assessGrading(double, sevensFull).summary);
-console.log(" ", assessGrading(double, poomsaeFiveFull).summary);
+console.log("\n--- eligibility guidance sample ---");
 console.log(
   " ",
   checkEligibility({ ...base, attendancePct: 92, target: belt("blue"), rankAttainedAt: "2026-03-26" })
@@ -262,5 +232,19 @@ console.log(
 );
 console.log(" ", rankLabel(rank("1st-dan")));
 
-console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
+
+
+check("admin appoints Exco", canAppointExco("admin"), true);
+check("coach appoints Exco", canAppointExco("coach"), true);
+check("Exco cannot appoint Exco", canAppointExco("exco"), false);
+check("coach approves belt-only requests", canReviewProfileChange("coach", { beltGrade: "Black Belt 1st Dan" }), true);
+check("coach cannot approve contact requests", canReviewProfileChange("coach", { phone: "08000000000" }), false);
+check("coach cannot approve mixed requests", canReviewProfileChange("coach", { beltGrade: "Black Belt 1st Dan", levelYear: "300" }), false);
+check("admin verifies mixed requests", canReviewProfileChange("admin", { beltGrade: "Black Belt 1st Dan", levelYear: "300" }), true);
+check("President cannot approve profile changes", canReviewProfileChange("exco", { beltGrade: "Black Belt 1st Dan" }), false);
+check("Treasurer retains payment verification", excoPermissions("exco", "treasurer").includes("dues:manage"), true);
+check("President cannot verify payments", excoPermissions("exco", "president").includes("dues:manage"), false);
+check("Secretary cannot verify membership", excoPermissions("exco", "general_secretary").includes("applications:manage"), false);
+
+console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

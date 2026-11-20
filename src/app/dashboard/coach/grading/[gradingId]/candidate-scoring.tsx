@@ -3,17 +3,19 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  assessGrading,
   beltById,
   buildPromotion,
   criteriaFor,
+  GRADING_CRITERIA,
+  GRADING_DECISIONS,
+  isGradingDecision,
   isPromoting,
   rankById,
-  suggestedAward,
   MAX_CRITERION_SCORE,
   OUTCOME_LABELS,
   OUTCOME_STYLES,
   type CriterionScores,
+  type GradingDecision,
   type GradingCriterionId,
 } from "@/lib/grading";
 import { saveCandidateScores, setCandidateAttendance, removeGradingCandidate } from "../actions";
@@ -28,9 +30,15 @@ type Candidate = {
   awardedRankId: string | null;
   isDouble: boolean;
   outcome: string;
-  totalScore: string | null;
   examinerNotes: string | null;
   overrideReason: string | null;
+  externalMarks: {
+    examinerName: string;
+    examinerEmail: string;
+    submittedAt: string;
+    notes: string | null;
+    scores: Record<GradingCriterionId, number | null>;
+  }[];
   scores: Record<GradingCriterionId, number | null>;
   valid: boolean;
 };
@@ -45,8 +53,9 @@ export function CandidateScoring({
   const router = useRouter();
   const [scores, setScores] = useState<CriterionScores>(candidate.scores);
   const [notes, setNotes] = useState(candidate.examinerNotes ?? "");
-  // Empty means "use the standard award for this result" - the panel only has
-  // to touch this when they want a different grade inside the belt.
+  const [outcome, setOutcome] = useState<GradingDecision>(
+    isGradingDecision(candidate.outcome) ? candidate.outcome : "pending"
+  );
   const [award, setAward] = useState<string>(candidate.awardedRankId ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,13 +90,8 @@ export function CandidateScoring({
   }
 
   const promotion = buildPromotion(from, to);
-  const criteria = criteriaFor(to);
+  const criteria = criteriaFor();
   const sitting = candidate.outcome !== "absent" && candidate.outcome !== "withdrawn";
-
-  // The same assessment the server will run, so the panel sees the verdict its
-  // marks produce before committing them. The server recomputes on save - this
-  // is a preview, never the source of the stored outcome.
-  const preview = assessGrading(promotion, scores);
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -102,7 +106,7 @@ export function CandidateScoring({
     }
   }
 
-  const shownOutcome = saved || !sitting ? candidate.outcome : preview.outcome;
+  const shownOutcome = sitting ? outcome : candidate.outcome;
 
   return (
     <div className="rounded-lg border border-black/10 p-4">
@@ -122,12 +126,15 @@ export function CandidateScoring({
             </span>
           </div>
           <div className="mt-1 text-xs text-zinc-500">
-            {candidate.fromLabel} &rarr; {candidate.toLabel} · pass {promotion.passMark}% · min{" "}
-            {promotion.minCriterionScore}/{MAX_CRITERION_SCORE} per component
+            {candidate.fromLabel} &rarr; {candidate.toLabel}
           </div>
           <div className="mt-0.5 text-xs text-zinc-500">
             Poomsae: {promotion.requiredPoomsae.join(" + ") || "none"}
             {to.externallyCertified && " · Dan rank, subject to Kukkiwon/NTF certification"}
+          </div>
+          <div className="mt-1 text-xs text-zinc-500">
+            Marks are recorded individually. The coach chooses the result; no total or
+            automatic pass/fail is calculated.
           </div>
         </div>
 
@@ -176,9 +183,42 @@ export function CandidateScoring({
 
       {candidate.overrideReason && (
         <p className="mt-3 rounded-md bg-yellow-50 p-2 text-xs text-yellow-900">
-          <span className="font-semibold">Entered on override:</span>{" "}
+          <span className="font-semibold">Eligibility note:</span>{" "}
           {candidate.overrideReason}
         </p>
+      )}
+
+      {candidate.externalMarks.length > 0 && (
+        <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-blue-900">
+            External examiner marks (reference only)
+          </h3>
+          {candidate.externalMarks.map((mark, index) => {
+            const scores = Object.entries(mark.scores).filter(
+              ([, value]) => value !== null
+            );
+            return (
+              <div key={`${mark.examinerEmail}-${mark.submittedAt}-${index}`} className="mt-2">
+                <p className="text-xs font-medium text-blue-900">
+                  {mark.examinerName} ({mark.examinerEmail}) ·{" "}
+                  {new Date(mark.submittedAt).toLocaleString()}
+                </p>
+                <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-blue-900">
+                  {scores.map(([id, value]) => (
+                    <span key={id} className="rounded bg-white/70 px-2 py-0.5">
+                      {GRADING_CRITERIA.find((criterion) => criterion.id === id)?.label ?? id}:{" "}
+                      {value}/{MAX_CRITERION_SCORE}
+                    </span>
+                  ))}
+                </div>
+                {mark.notes && <p className="mt-1 text-xs text-blue-900">{mark.notes}</p>}
+              </div>
+            );
+          })}
+          <p className="mt-2 text-xs text-blue-800">
+            The coach&apos;s marks and final result are recorded separately.
+          </p>
+        </div>
       )}
 
       {!sitting ? (
@@ -192,21 +232,17 @@ export function CandidateScoring({
               <thead className="text-xs uppercase tracking-wide text-zinc-500">
                 <tr>
                   <th className="py-2">Component</th>
-                  <th className="py-2 w-20">Weight</th>
                   <th className="py-2 w-28">Mark /10</th>
-                  <th className="py-2 w-24">Contributes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/5">
                 {criteria.map((c) => {
-                  const row = preview.breakdown.find((b) => b.id === c.id)!;
                   return (
                     <tr key={c.id}>
                       <td className="py-2">
                         <div className="font-medium text-brand-black">{c.label}</div>
                         <div className="text-xs text-zinc-500">{c.ko}</div>
                       </td>
-                      <td className="py-2 text-zinc-600">{c.weight}</td>
                       <td className="py-2">
                         <input
                           type="number"
@@ -223,15 +259,8 @@ export function CandidateScoring({
                               [c.id]: raw === "" ? null : Number(raw),
                             }));
                           }}
-                          className={`w-20 rounded-lg border px-2 py-1 text-sm focus:outline-none focus:ring-1 ${
-                            row.belowMinimum
-                              ? "border-red-300 text-red-700 focus:border-red-400 focus:ring-red-400"
-                              : "border-zinc-300 text-zinc-900 focus:border-brand-red focus:ring-brand-red"
-                          }`}
+                          className="w-20 rounded-lg border border-zinc-300 px-2 py-1 text-sm text-zinc-900 focus:border-brand-red focus:outline-none focus:ring-1 focus:ring-brand-red"
                         />
-                      </td>
-                      <td className="py-2 text-zinc-600">
-                        {row.score === null ? "-" : `${row.contribution} / ${c.weight}`}
                       </td>
                     </tr>
                   );
@@ -240,26 +269,34 @@ export function CandidateScoring({
             </table>
           </div>
 
-          <div className="mt-3 rounded-md bg-zinc-50 p-3 text-sm">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="font-semibold text-brand-black">
-                {preview.complete ? `${preview.total}%` : `${preview.total}% so far`}
-              </span>
-              <span className="text-xs text-zinc-600">{preview.summary}</span>
-            </div>
-          </div>
-
           {!readOnly && (
             <>
-              {/*
-                The grade inside the belt is the panel's call, not the system's.
-                A default is suggested from the result - top of the belt for a
-                distinction, bottom for a plain pass - but the examiners set it.
-              */}
-              {isPromoting(preview.outcome) && promotion.awardable.length > 1 && (
+              <label className="mt-3 block">
+                <span className="text-xs font-medium text-zinc-700">Coach&apos;s result</span>
+                <select
+                  value={outcome}
+                  disabled={busy}
+                  onChange={(e) => {
+                    if (isGradingDecision(e.target.value)) {
+                      setOutcome(e.target.value);
+                      setSaved(false);
+                      if (!isPromoting(e.target.value)) setAward("");
+                    }
+                  }}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 focus:border-brand-red focus:outline-none focus:ring-1 focus:ring-brand-red"
+                >
+                  {GRADING_DECISIONS.map((decision) => (
+                    <option key={decision} value={decision}>
+                      {OUTCOME_LABELS[decision]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {isPromoting(outcome) && (
                 <label className="mt-3 block">
                   <span className="text-xs font-medium text-zinc-700">
-                    Grade awarded within {promotion.to.name}
+                    Grade awarded within {promotion.to.name} (required)
                   </span>
                   <select
                     value={award}
@@ -270,12 +307,7 @@ export function CandidateScoring({
                     }}
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 focus:border-brand-red focus:outline-none focus:ring-1 focus:ring-brand-red"
                   >
-                    <option value="">
-                      Standard for this result
-                      {suggestedAward(promotion, preview.outcome)
-                        ? ` (${suggestedAward(promotion, preview.outcome)!.grade})`
-                        : ""}
-                    </option>
+                    <option value="">Choose a grade...</option>
                     {promotion.awardable.map((r) => (
                       <option key={r.id} value={r.id}>
                         {r.grade}
@@ -309,6 +341,7 @@ export function CandidateScoring({
                       await saveCandidateScores({
                         candidateId: candidate.id,
                         scores,
+                        outcome,
                         examinerNotes: notes,
                         awardedRankId: award || null,
                       });
@@ -317,7 +350,7 @@ export function CandidateScoring({
                   }
                   className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  {busy ? "Saving..." : "Save Marks"}
+                  {busy ? "Saving..." : "Save Marks & Result"}
                 </button>
                 {saved && <span className="text-sm text-green-600">Saved.</span>}
               </div>

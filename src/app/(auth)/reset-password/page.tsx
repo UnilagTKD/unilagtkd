@@ -22,8 +22,8 @@ export default async function ResetPasswordPage({
 
       {!token || !user ? (
         <div className="mt-6 rounded-xl border border-black/10 bg-zinc-50 p-6 text-sm text-zinc-600">
-          This reset link is invalid or has expired. Reset links are single-use and
-          valid for 24 hours &mdash;{" "}
+          This reset link is invalid or has expired. Reset links are single-use;
+          emailed links expire after one hour. You can{" "}
           <Link href="/forgot-password" className="text-brand-red hover:underline">
             request another
           </Link>{" "}

@@ -1,9 +1,13 @@
+import { expireTrainingSessions } from "@/lib/training-session-data";
+import { sessionHasEnded, sessionExpiresAt } from "@/lib/training-session";
+import { SessionExpiryRefresh } from "@/components/dashboard/session-expiry-refresh";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { trainingSessions } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { CheckInButton } from "./check-in-button";
+import { recordIdFromSlug } from "@/lib/record-slug";
 
 /**
  * Landing page for the QR code on the coach dashboard. Any signed-in member
@@ -15,12 +19,15 @@ export default async function SessionCheckInPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const session = await auth();
-  const { sessionId } = await params;
+  const { sessionId: slug } = await params;
+  const sessionId = recordIdFromSlug(slug);
+  if (!sessionId) notFound();
 
   if (!session?.user) {
-    redirect(`/login?callbackUrl=/dashboard/checkin/${sessionId}`);
+    redirect("/login");
   }
 
+  await expireTrainingSessions(sessionId);
   const [trainingSession] = await db
     .select()
     .from(trainingSessions)
@@ -39,7 +46,7 @@ export default async function SessionCheckInPage({
           {trainingSession.location && ` · ${trainingSession.location}`}
         </p>
       </div>
-      <CheckInButton sessionId={sessionId} />
+      {sessionHasEnded(trainingSession) ? <p className="rounded-lg bg-zinc-100 p-4 text-sm">This session has ended; member check-in is closed. A coach can still record your attendance.</p> : <><SessionExpiryRefresh deadline={sessionExpiresAt(trainingSession).toISOString()} /><CheckInButton sessionId={sessionId} /></>}
     </div>
   );
 }

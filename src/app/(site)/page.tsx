@@ -1,9 +1,15 @@
+import { portalHref } from "@/lib/domains";
 import Link from "next/link";
-import { db } from "@/db";
-import { achievements, galleryItems, users, subCommittees, insights } from "@/db/schema";
-import { desc, count, inArray, eq, and } from "drizzle-orm";
+import { getHomeContent } from "@/lib/public-content";
+import { publicMetadata } from "@/lib/seo";
+import { SiteImage } from "@/components/site-image";
+import { Suspense } from "react";
+import { BrandLoading } from "@/components/brand-loading";
+export const metadata = publicMetadata("/");
+
+
 import { TENETS, MEDAL_STYLES, TRAINING_PILLARS, TRAINING_SCHEDULE } from "@/lib/constants";
-import { MEMBER_ROLES } from "@/lib/roles";
+
 import { HeroCarousel, type HeroSlide } from "@/components/hero-carousel";
 import { Reveal } from "@/components/reveal";
 
@@ -14,26 +20,12 @@ const INSIGHT_CATEGORY_LABELS: Record<string, string> = {
   wellness: "Wellness",
 };
 
-export default async function HomePage() {
-  const [
-    recentAchievements,
-    recentPhotos,
-    recentInsights,
-    [{ medalCount }],
-    [{ memberCount }],
-    [{ subCommitteeCount }],
-  ] = await Promise.all([
-    db.select().from(achievements).orderBy(desc(achievements.competitionDate)).limit(3),
-    db.select().from(galleryItems).orderBy(desc(galleryItems.createdAt)).limit(4),
-    db.select().from(insights).orderBy(desc(insights.createdAt)).limit(3),
-    db.select({ medalCount: count() }).from(achievements),
-    db
-      .select({ memberCount: count() })
-      .from(users)
-      .where(and(inArray(users.role, [...MEMBER_ROLES]), eq(users.status, "active"))),
-    db.select({ subCommitteeCount: count() }).from(subCommittees),
-  ]);
+export default function HomePage() {
+  return <Suspense fallback={<BrandLoading fullScreen />}><HomeContent /></Suspense>;
+}
 
+async function HomeContent() {
+  const { recentAchievements, recentPhotos, recentInsights, medalCount, memberCount, subCommitteeCount } = await getHomeContent();
   const STATS = [
     { label: "Medals Won", value: medalCount, accent: "red" as const },
     { label: "Active Members", value: memberCount, accent: "blue" as const },
@@ -50,7 +42,7 @@ export default async function HomePage() {
       title: "Discipline, Respect, and Excellence on the Mat.",
       description:
         "The UNILAG Taekwondo Club trains student-athletes in the Olympic combat sport of Taekwondo, building champions in competition and in character.",
-      ctaHref: "/register",
+      ctaHref: portalHref("/register"),
       ctaLabel: "Register for Membership",
       secondaryHref: "/about",
       secondaryLabel: "Learn About the Club",
@@ -84,7 +76,7 @@ export default async function HomePage() {
       <HeroCarousel slides={heroSlides} />
 
       <section className="border-b border-black/10 bg-white">
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-4 px-4 py-10 sm:px-6 md:grid-cols-4">
+        <div className="mx-auto grid max-w-[1800px] grid-cols-2 gap-4 px-4 py-10 sm:px-6 md:grid-cols-4">
           {STATS.map((stat, i) => (
             <div
               key={stat.label}
@@ -105,7 +97,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+      <section className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-brand-red">
           The Five Tenets
         </h2>
@@ -127,7 +119,7 @@ export default async function HomePage() {
       </section>
 
       <section className="bg-zinc-50">
-        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+        <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-brand-blue">
               How We Train
@@ -165,7 +157,7 @@ export default async function HomePage() {
       </section>
 
       {recentPhotos.length > 0 && (
-        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+        <section className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-brand-blue">
               From the Dojang
@@ -177,11 +169,11 @@ export default async function HomePage() {
           <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
             {recentPhotos.map((photo, i) => (
               <Reveal key={photo.id} delay={i * 80}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <SiteImage
                   src={photo.imageUrl}
                   alt={photo.caption ?? "UNILAG Taekwondo Club"}
-                  className="aspect-square w-full rounded-lg object-cover transition-transform duration-300 hover:scale-[1.03]"
+                  sizes="(max-width: 640px) 50vw, 25vw"
+                  className="aspect-square h-auto w-full rounded-lg object-cover transition-transform duration-300 hover:scale-[1.03]"
                 />
               </Reveal>
             ))}
@@ -191,7 +183,7 @@ export default async function HomePage() {
 
       {recentAchievements.length > 0 && (
         <section className="bg-zinc-50">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+          <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold uppercase tracking-widest text-brand-red">
                 Recent Achievements
@@ -220,7 +212,7 @@ export default async function HomePage() {
       )}
 
       {recentInsights.length > 0 && (
-        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+        <section className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-brand-blue">
               Latest Insights
@@ -237,11 +229,11 @@ export default async function HomePage() {
                   className="group block overflow-hidden rounded-xl border border-black/10 bg-white transition-all duration-200 hover:-translate-y-1 hover:shadow-md"
                 >
                   {post.coverImageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <SiteImage
                       src={post.coverImageUrl}
-                      alt=""
-                      className="aspect-[16/9] w-full object-cover"
+                      alt={post.title}
+                      sizes="(max-width: 640px) 100vw, 33vw"
+                      className="aspect-[16/9] h-auto w-full object-cover"
                     />
                   )}
                   <div className="p-5">

@@ -15,3 +15,6 @@ export const MEMBER_ROLES = ["student", "alumni", "exco"] as const satisfies rea
  * still pay dues, but they are not on the active training register.
  */
 export const ACTIVE_MEMBER_ROLES = ["student", "exco"] as const satisfies readonly UserRole[];
+
+/** Shared personal pages are also available to coaches, independently of training rosters. */
+export const MEMBER_PAGE_ROLES = [...MEMBER_ROLES, "coach"] as const satisfies readonly UserRole[];

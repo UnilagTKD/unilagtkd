@@ -19,6 +19,9 @@ const COMMON_PASSWORDS = new Set([
 
 /** Returns an error message if the password is too weak, or null if it's fine. */
 export function passwordStrengthError(password: string): string | null {
+  if (typeof password !== "string" || new TextEncoder().encode(password).length > 72) {
+    return "Password must contain no more than 72 bytes.";
+  }
   if (password.length < 8) {
     return "Password must be at least 8 characters.";
   }

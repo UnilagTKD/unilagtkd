@@ -1,27 +1,29 @@
 "use server";
+import { afterAccountAction } from "@/lib/action-notifications";
 
-import { headers } from "next/headers";
 import { z } from "zod";
 import { db } from "@/db";
 import { contactMessages } from "@/db/schema";
-import { rateLimit } from "@/lib/rate-limit";
+import { requestRateLimit } from "@/lib/shared-rate-limit";
+import { verifyBotProtection } from "@/lib/bot-protection";
+import { securityLog } from "@/lib/security-log";
 
 const contactSchema = z.object({
-  name: z.string().min(2, "Name is required"),
-  email: z.string().email("Enter a valid email"),
-  subject: z.string().optional(),
-  message: z.string().min(10, "Message must be at least 10 characters"),
+  name: z.string().trim().min(2, "Name is required").max(150),
+  email: z.string().trim().email("Enter a valid email").max(255),
+  subject: z.string().trim().max(255).optional(),
+  message: z.string().trim().min(10, "Message must be at least 10 characters").max(10000),
 });
 
 export type SubmitContactResult = { ok: true } | { ok: false; error: string };
 
-export async function submitContactMessage(input: unknown): Promise<SubmitContactResult> {
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const { allowed } = rateLimit(`contact:${ip}`, 5, 60 * 60_000);
+async function submitContactMessageCore(input: unknown, protection?: unknown): Promise<SubmitContactResult> {
+  const { allowed } = await requestRateLimit("contact", 5, 60 * 60_000);
   if (!allowed) {
     return { ok: false, error: "Too many messages from this connection. Please try again later." };
   }
 
+  if (!(await verifyBotProtection(protection, "contact"))) return { ok: false, error: "Please complete the form verification and try again." };
   const parsed = contactSchema.safeParse(input);
 
   if (!parsed.success) {
@@ -36,8 +38,14 @@ export async function submitContactMessage(input: unknown): Promise<SubmitContac
       message: parsed.data.message,
     });
     return { ok: true };
-  } catch (err) {
-    console.error("Failed to submit contact message", err);
+  } catch {
+    securityLog("contact_submit_failed");
     return { ok: false, error: "Something went wrong sending your message. Please try again." };
   }
+}
+
+export async function submitContactMessage(...args: Parameters<typeof submitContactMessageCore>) {
+const result = await submitContactMessageCore(...args);
+await afterAccountAction("submitContactMessage", args, result);
+return result;
 }

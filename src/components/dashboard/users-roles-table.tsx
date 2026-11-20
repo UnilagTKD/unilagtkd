@@ -7,6 +7,7 @@ import { EXCO_POSITION_LABELS, type ExcoPosition } from "@/lib/exco";
 export type UserRoleRow = {
   id: string;
   email: string;
+  username?: string | null;
   role: UserRole;
   excoPosition: ExcoPosition | null;
   status: "active" | "inactive";
@@ -34,12 +35,13 @@ export function UsersRolesTable({
   rows: UserRoleRow[];
   currentUserId: string;
 }) {
+  const positionCounts: Partial<Record<ExcoPosition, number>> = {};
+  for (const row of rows) if (row.excoPosition) positionCounts[row.excoPosition] = (positionCounts[row.excoPosition] ?? 0) + 1;
   return (
     <div className="rounded-xl border border-black/10 bg-white p-6">
       <h2 className="font-semibold text-brand-black">Users &amp; Roles ({rows.length})</h2>
       <p className="mt-1 text-xs text-zinc-500">
-        Your own row is shown for confirmation only &mdash; change your own role or status from
-        another officer&apos;s account.
+        Appointments take effect immediately. You cannot change your own role or account status.
       </p>
 
       {/* Mobile: stacked cards, no horizontal scrolling required. */}
@@ -59,6 +61,7 @@ export function UsersRolesTable({
                     )}
                   </div>
                   <div className="truncate text-xs text-zinc-500">{u.email}</div>
+                  {u.username && <div className="text-xs text-zinc-500">@{u.username}</div>}
                 </div>
                 <StatusBadge status={u.status} />
               </div>
@@ -83,6 +86,9 @@ export function UsersRolesTable({
                       <div className="mt-1 [&>select]:w-full">
                         <ExcoPositionSelect
                           userId={u.id}
+                          memberName={u.fullName ?? u.email}
+                          currentStatus={u.status}
+                          positionCounts={positionCounts}
                           currentRole={u.role}
                           currentPosition={u.excoPosition}
                         />
@@ -126,7 +132,7 @@ export function UsersRolesTable({
                       </span>
                     )}
                   </td>
-                  <td className="py-2 text-zinc-600">{u.email}</td>
+                  <td className="py-2 text-zinc-600">{u.email}{u.username && <div className="text-xs">@{u.username}</div>}</td>
                   {isSelf ? (
                     <>
                       <td className="py-2 text-zinc-600">{u.role}</td>
@@ -146,6 +152,9 @@ export function UsersRolesTable({
                       <td className="py-2">
                         <ExcoPositionSelect
                           userId={u.id}
+                          memberName={u.fullName ?? u.email}
+                          currentStatus={u.status}
+                          positionCounts={positionCounts}
                           currentRole={u.role}
                           currentPosition={u.excoPosition}
                         />

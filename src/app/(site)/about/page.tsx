@@ -1,3 +1,4 @@
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 import {
   TENETS,
@@ -11,11 +12,11 @@ import {
 import { AffiliationBadges } from "@/components/affiliation-badges";
 import { Reveal } from "@/components/reveal";
 
-export const metadata: Metadata = { title: "About the Club" };
+export const metadata: Metadata = publicMetadata("/about");
 
 export default function AboutPage() {
   return (
-    <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
       <span className="text-sm font-semibold uppercase tracking-widest text-brand-red">
         About Us
       </span>

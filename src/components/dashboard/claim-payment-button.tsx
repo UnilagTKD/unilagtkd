@@ -8,6 +8,7 @@ export function ClaimPaymentButton({ duesId }: { duesId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [reference, setReference] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   if (!open) {
@@ -27,19 +28,22 @@ export function ClaimPaymentButton({ duesId }: { duesId: string }) {
       onSubmit={async (e) => {
         e.preventDefault();
         setSaving(true);
-        await claimDuesPayment(duesId, reference);
-        setSaving(false);
-        setOpen(false);
-        router.refresh();
+        setError(null);
+        try { await claimDuesPayment(duesId, reference); setOpen(false); router.refresh(); }
+        catch (err) { setError(err instanceof Error ? err.message : "Could not submit your claim."); }
+        finally { setSaving(false); }
       }}
-      className="flex items-center gap-2"
+      className="flex flex-wrap items-center gap-2"
     >
       <input
+        aria-label="Transfer reference"
+        maxLength={150}
         value={reference}
         onChange={(e) => setReference(e.target.value)}
         placeholder="Transfer reference (optional)"
         className="w-40 rounded-full border border-zinc-300 px-3 py-1 text-xs focus:border-brand-red focus:outline-none"
       />
+      {error && <p role="alert" className="w-full text-xs text-red-600">{error}</p>}
       <button
         type="submit"
         disabled={saving}

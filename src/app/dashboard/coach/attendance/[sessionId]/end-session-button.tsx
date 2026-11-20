@@ -13,7 +13,7 @@ export function EndSessionButton({ sessionId }: { sessionId: string }) {
       type="button"
       disabled={ending}
       onClick={async () => {
-        if (!confirm("End this session? Attendance can no longer be marked or self-checked into once it's ended."))
+        if (!confirm("Close member check-in for this session? Coaches can still record or correct attendance afterward."))
           return;
         setEnding(true);
         await endTrainingSession(sessionId);

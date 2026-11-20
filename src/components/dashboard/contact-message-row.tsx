@@ -14,7 +14,7 @@ type Message = {
   createdAt: Date;
 };
 
-export function ContactMessageRow({ message }: { message: Message }) {
+export function ContactMessageRow({ message, canDelete = true }: { message: Message; canDelete?: boolean }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -44,7 +44,7 @@ export function ContactMessageRow({ message }: { message: Message }) {
             {new Date(message.createdAt).toLocaleDateString()}
           </div>
         </button>
-        <button
+        {canDelete && <button
           type="button"
           disabled={busy}
           onClick={async () => {
@@ -55,7 +55,7 @@ export function ContactMessageRow({ message }: { message: Message }) {
           className="text-xs font-medium text-brand-red hover:underline disabled:opacity-60"
         >
           Delete
-        </button>
+        </button>}
       </div>
       {expanded && (
         <p className="mt-2 whitespace-pre-wrap rounded-md bg-zinc-50 p-3 text-sm text-zinc-700">

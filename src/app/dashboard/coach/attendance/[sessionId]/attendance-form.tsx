@@ -1,4 +1,8 @@
 "use client";
+import { recordSlug } from "@/lib/record-slug";
+
+import Link from "next/link";
+
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -19,16 +23,16 @@ export function AttendanceForm({
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function save() {
     setSaving(true);
-    await markAttendance(
-      sessionId,
-      Object.entries(state).map(([userId, present]) => ({ userId, present }))
-    );
-    setSaving(false);
-    setSaved(true);
-    router.refresh();
+    setError(null);
+    try {
+      await markAttendance(sessionId, Object.entries(state).map(([userId, present]) => ({ userId, present })));
+      setSaved(true); router.refresh();
+    } catch (err) { setError(err instanceof Error ? err.message : "Could not save attendance."); }
+    finally { setSaving(false); }
   }
 
   if (roster.length === 0) {
@@ -36,11 +40,11 @@ export function AttendanceForm({
   }
 
   return (
-    <div className="rounded-xl border border-black/10 bg-white p-6">
+    <div className="rounded-xl border border-black/10 bg-white p-4 sm:p-6">
       <ul className="divide-y divide-black/5">
         {roster.map((r) => (
-          <li key={r.id} className="flex items-center justify-between py-3">
-            <span className="text-sm font-medium text-brand-black">{r.name}</span>
+          <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <Link href={`/dashboard/coach/members/${recordSlug(r.name, r.id)}`} className="min-w-0 break-words text-sm font-medium text-brand-black hover:text-brand-red">{r.name}</Link>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -55,7 +59,8 @@ export function AttendanceForm({
           </li>
         ))}
       </ul>
-      <div className="mt-4 flex items-center gap-3">
+      {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={save}

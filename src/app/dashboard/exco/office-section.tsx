@@ -1,4 +1,5 @@
 import { getExcoContext } from "@/lib/session";
+import { applicationReviewColumns } from "@/lib/application-review-data";
 import {
   EXCO_POSITION_DUTIES,
   EXCO_POSITION_SHORT_LABELS,
@@ -19,20 +20,19 @@ import {
   insights,
   contactMessages,
 } from "@/db/schema";
-import { eq, desc, inArray, isNotNull, sql } from "drizzle-orm";
+import { eq, desc, inArray, isNotNull, sql, or, and } from "drizzle-orm";
 import { AnnouncementForm } from "./announcement-form";
 import { DeleteAnnouncementButton } from "./delete-announcement-button";
 import { DuesChargeForm } from "./dues-charge-form";
 import { IssueReceiptButton } from "./issue-receipt-button";
 import { PaymentClaimAlert } from "./payment-claim-alert";
 import { FinanceSummary } from "./finance-summary";
-import { LeaveRequestsPanel } from "./leave-requests-panel";
+import { ApprovedLeaveList, LeaveRequestsPanel } from "./leave-requests-panel";
 import { MemberRegister } from "@/components/dashboard/member-register";
 import { WelfarePanel } from "./welfare-panel";
 import { ExcoDirectory } from "./exco-directory";
 import { SubCommitteeAssign } from "./sub-committee-assign";
 import { ApplicationReview } from "@/components/dashboard/application-review";
-import { UsersRolesTable } from "@/components/dashboard/users-roles-table";
 import { PasswordResetReview } from "@/components/dashboard/password-reset-review";
 import { ContactMessageRow } from "@/components/dashboard/contact-message-row";
 import { AchievementForm } from "@/components/dashboard/achievement-form";
@@ -55,7 +55,7 @@ const UNPAID_DUES_LIMIT = 500;
 export async function ExcoOfficeSection() {
   const { user, position, can } = await getExcoContext();
 
-  if (user.role !== "exco") return null;
+  if (user.role !== "exco" && !(user.role === "admin" && position)) return null;
 
   const canManageAnnouncements = can("announcements:manage");
   const canViewDues = can("dues:view");
@@ -65,8 +65,8 @@ export async function ExcoOfficeSection() {
   const canViewRecords = can("members:records");
   const canAssignMembers = can("members:assign");
   const canViewWelfare = can("welfare:view");
+  const canViewApprovedLeave = can("leave:view_approved");
   const canReviewLeave = can("leave:review");
-  const canManageRoles = can("members:manage_roles");
   const canManagePasswordResets = can("password_resets:manage");
   const canManageContactMessages = can("contact_messages:manage");
   const canManageContent = can("content:manage");
@@ -81,8 +81,8 @@ export async function ExcoOfficeSection() {
     register,
     welfareRows,
     leaveRows,
+    approvedLeaveRows,
     excoMembers,
-    allUsersForRoles,
     resetRequests,
     allContactMessages,
     allAchievements,
@@ -129,6 +129,8 @@ export async function ExcoOfficeSection() {
             paid: dues.paid,
             paymentClaimed: dues.paymentClaimed,
             paymentReference: dues.paymentReference,
+            paymentClaimedAt: dues.paymentClaimedAt,
+            paymentDeclineReason: dues.paymentDeclineReason,
             receiptNo: dues.receiptNo,
             userFullName: memberProfiles.fullName,
             userEmail: users.email,
@@ -141,7 +143,7 @@ export async function ExcoOfficeSection() {
           .limit(UNPAID_DUES_LIMIT)
       : [],
     canViewApplications
-      ? db.select().from(applications).orderBy(desc(applications.createdAt))
+      ? db.select(applicationReviewColumns).from(applications).orderBy(desc(applications.createdAt))
       : [],
     canViewRecords
       ? db
@@ -200,6 +202,22 @@ export async function ExcoOfficeSection() {
           .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
           .orderBy(desc(leaveRequests.createdAt))
       : [],
+    canViewApprovedLeave
+      ? db
+          .select({
+            id: leaveRequests.id,
+            reasonCategory: leaveRequests.reasonCategory,
+            startDate: leaveRequests.startDate,
+            endDate: leaveRequests.endDate,
+            memberName: memberProfiles.fullName,
+            memberEmail: users.email,
+          })
+          .from(leaveRequests)
+          .innerJoin(users, eq(leaveRequests.userId, users.id))
+          .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
+          .where(eq(leaveRequests.status, "approved"))
+          .orderBy(desc(leaveRequests.createdAt))
+      : [],
     db
       .select({
         id: users.id,
@@ -209,21 +227,7 @@ export async function ExcoOfficeSection() {
       })
       .from(users)
       .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
-      .where(eq(users.role, "exco")),
-    canManageRoles
-      ? db
-          .select({
-            id: users.id,
-            email: users.email,
-            role: users.role,
-            excoPosition: users.excoPosition,
-            status: users.status,
-            fullName: memberProfiles.fullName,
-          })
-          .from(users)
-          .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
-          .orderBy(desc(users.createdAt))
-      : [],
+      .where(or(eq(users.role, "exco"), and(eq(users.role, "admin"), isNotNull(users.excoPosition)))),
     canManagePasswordResets
       ? db
           .select({
@@ -276,11 +280,12 @@ export async function ExcoOfficeSection() {
       {!position && (
         <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-800">
           You have not been assigned an executive office yet, so this dashboard is
-          read-only. Ask the General Secretary to set your office.
+          read-only. Ask an Admin to set your office.
         </div>
       )}
 
-      {canManageDues && <PaymentClaimAlert initialCount={duesTotals.claimedCount} />}
+
+      {canManageDues && <PaymentClaimAlert key={duesTotals.claimedCount} initialCount={duesTotals.claimedCount} />}
 
       <div className="grid gap-4 sm:grid-cols-3">
         {canViewApplications && (
@@ -353,6 +358,18 @@ export async function ExcoOfficeSection() {
         />
       )}
 
+      {canViewApprovedLeave && (
+        <ApprovedLeaveList
+          requests={approvedLeaveRows.map((r) => ({
+            id: r.id,
+            memberName: r.memberName ?? r.memberEmail,
+            reasonCategory: r.reasonCategory,
+            startDate: r.startDate,
+            endDate: r.endDate,
+          }))}
+        />
+      )}
+
       {canViewWelfare && (
         <WelfarePanel
           rows={welfareRows.map((r) => ({
@@ -395,20 +412,21 @@ export async function ExcoOfficeSection() {
                 <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span>
                     {d.userFullName ?? d.userEmail}, {d.periodLabel}: &#8358;{d.amount}
+                    {!d.paymentClaimed && d.paymentDeclineReason && <span className="mt-1 block text-xs text-red-700">Claim declined: {d.paymentDeclineReason}</span>}
                     {d.paymentClaimed && d.paymentReference && (
                       <span className="ml-1 text-xs text-zinc-400">
                         (ref: {d.paymentReference})
                       </span>
                     )}
                   </span>
-                  <div className="flex flex-none items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {d.paymentClaimed && (
                       <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
                         Claimed
                       </span>
                     )}
                     {canManageDues ? (
-                      <IssueReceiptButton duesId={d.id} />
+                      <IssueReceiptButton key={`${d.id}:${d.paymentClaimed}:${d.paymentClaimedAt?.toISOString() ?? ""}`} duesId={d.id} />
                     ) : (
                       <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600">
                         Unpaid
@@ -556,10 +574,6 @@ export async function ExcoOfficeSection() {
             ))}
           </div>
         </div>
-      )}
-
-      {canManageRoles && (
-        <UsersRolesTable rows={allUsersForRoles} currentUserId={user.id} />
       )}
 
       {canManageContent && (

@@ -10,6 +10,11 @@ export const EXCO_POSITIONS = [
 ] as const;
 
 export type ExcoPosition = (typeof EXCO_POSITIONS)[number];
+export const EXCO_POSITION_LIMIT = 2;
+
+export function excoPositionIsFull(position: ExcoPosition, occupied: number, currentPosition: ExcoPosition | null) {
+  return position !== currentPosition && occupied >= EXCO_POSITION_LIMIT;
+}
 
 export const EXCO_POSITION_LABELS: Record<ExcoPosition, string> = {
   president: "President / Captain",
@@ -36,11 +41,11 @@ export const EXCO_POSITION_DUTIES: Record<ExcoPosition, string> = {
   vice_president:
     "Deputises for the President and runs the sub-committees: assigning members, tracking committee strength, and following the intake pipeline.",
   general_secretary:
-    "Custodian of club records and communication. Maintains the member register, issues announcements, reviews membership applications, manages user roles and password resets, handles contact messages, and publishes achievements, gallery, and insights content.",
+    "Custodian of club records and communication. Maintains the member register, issues announcements, handles contact messages, and publishes achievements, gallery, and insights content. Membership and account verification are handled by admin.",
   treasurer:
     "Runs the club purse: raises dues charges, confirms payments, and keeps the collection ledger balanced.",
   welfare_officer:
-    "Leads athlete wellbeing: medical readiness, emergency contacts, leave requests, and first-aid logistics for training and travel.",
+    "Leads athlete wellbeing: medical readiness, emergency contacts, approved leave records, and first-aid logistics for training and travel.",
 };
 
 export type ExcoPermission =
@@ -61,10 +66,10 @@ export type ExcoPermission =
   | "members:assign"
   // Medical readiness and emergency contacts. Deliberately narrow.
   | "welfare:view"
+  // See approved requests to be excused from training.
+  | "leave:view_approved"
   // Approve or decline requests to be excused from training.
   | "leave:review"
-  // Change a member's role/exco office, and activate/deactivate accounts.
-  | "members:manage_roles"
   // Issue or dismiss password reset requests.
   | "password_resets:manage"
   // Read and remove messages sent through the public contact form.
@@ -82,12 +87,10 @@ const PERMISSIONS_BY_POSITION: Record<ExcoPosition, ExcoPermission[]> = {
   president: [
     "announcements:manage",
     "dues:view",
-    "dues:manage",
     "applications:view",
     "members:view",
     "members:records",
     "members:assign",
-    "leave:review",
   ],
   // Deputises for the President on everything except the purse, which stays
   // between the Treasurer and the President.
@@ -97,20 +100,16 @@ const PERMISSIONS_BY_POSITION: Record<ExcoPosition, ExcoPermission[]> = {
     "members:view",
     "members:assign",
   ],
-  // Took on every duty the admin role used to hold, on top of its own.
   general_secretary: [
     "announcements:manage",
     "applications:view",
-    "applications:manage",
     "members:view",
     "members:records",
-    "members:manage_roles",
-    "password_resets:manage",
     "contact_messages:manage",
     "content:manage",
   ],
   treasurer: ["dues:view", "dues:manage", "members:view"],
-  welfare_officer: ["members:view", "welfare:view", "leave:review"],
+  welfare_officer: ["members:view", "welfare:view", "leave:view_approved"],
 };
 
 export function isExcoPosition(value: unknown): value is ExcoPosition {
@@ -125,7 +124,7 @@ export function excoPermissions(
   role: UserRole,
   position: ExcoPosition | null
 ): ExcoPermission[] {
-  if (role !== "exco") return [];
+  if (role !== "exco" && !(role === "admin" && position)) return [];
 
   return position ? PERMISSIONS_BY_POSITION[position] : BASE_PERMISSIONS;
 }
@@ -151,3 +150,8 @@ export const LEAVE_REASON_LABELS: Record<LeaveReason, string> = {
   travel: "Travel",
   personal: "Personal",
 };
+
+/** Receipt signature settings belong only to the account holding Treasurer. */
+export function canManageReceiptSignature(role: UserRole, position: ExcoPosition | null): boolean {
+  return (role === "exco" || role === "admin") && position === "treasurer";
+}

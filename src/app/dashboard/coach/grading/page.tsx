@@ -1,3 +1,4 @@
+import { recordSlug } from "@/lib/record-slug";
 import Link from "next/link";
 import { requireRole } from "@/lib/session";
 import { MEMBER_ROLES } from "@/lib/roles";
@@ -253,7 +254,7 @@ export default async function CoachGradingPage() {
                     {GRADING_STATUS_LABELS[g.status]}
                   </span>
                   <Link
-                    href={`/dashboard/coach/grading/${g.id}`}
+                    href={`/dashboard/coach/grading/${recordSlug(g.title, g.id)}`}
                     className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-brand-black hover:bg-zinc-50"
                   >
                     {g.status === "published" ? "View Results" : "Open Panel"}
@@ -315,7 +316,7 @@ export default async function CoachGradingPage() {
                         className={`rounded-lg border p-3 text-xs ${
                           o.eligible
                             ? "border-green-200 bg-green-50"
-                            : "border-zinc-200 bg-zinc-50"
+                            : "border-yellow-200 bg-yellow-50"
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -333,20 +334,23 @@ export default async function CoachGradingPage() {
                           </span>
                         </div>
                         <div className="mt-1 text-zinc-500">
-                          Pass {o.promotion.passMark}% · min{" "}
-                          {o.promotion.minCriterionScore}/10 per component ·{" "}
-                          {o.promotion.requiredPoomsae.join(" + ") || "no form"}
+                          Poomsae guidance: {o.promotion.requiredPoomsae.join(" + ") || "no form"}
                         </div>
                         {o.eligible ? (
                           <div className="mt-1 font-medium text-green-700">
-                            Meets every requirement
+                            No eligibility guidance warnings
                           </div>
                         ) : (
-                          <ul className="mt-1 list-inside list-disc text-zinc-600">
-                            {o.blockers.map((b) => (
-                              <li key={b.code}>{b.message}</li>
-                            ))}
-                          </ul>
+                          <>
+                            <div className="mt-1 font-medium text-yellow-900">
+                              Guidance only; coach discretion
+                            </div>
+                            <ul className="mt-1 list-inside list-disc text-zinc-700">
+                              {o.blockers.map((b) => (
+                                <li key={b.code}>{b.message}</li>
+                              ))}
+                            </ul>
+                          </>
                         )}
                       </div>
                     ))}

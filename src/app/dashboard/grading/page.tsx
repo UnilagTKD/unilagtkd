@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/session";
-import { MEMBER_ROLES } from "@/lib/roles";
+import { MEMBER_PAGE_ROLES } from "@/lib/roles";
 import { db } from "@/db";
 import { gradingEvents, gradingCandidates, gradingRequests, dues } from "@/db/schema";
-import { and, desc, eq, ne, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, ne, isNotNull, inArray, gte } from "drizzle-orm";
 import {
   checkEligibility,
   gradingOptions,
@@ -18,11 +18,13 @@ import {
 } from "@/lib/grading";
 import { getGradingWindow, loadEligibilityContext } from "@/lib/grading-data";
 import { ATTENDANCE_THRESHOLDS } from "@/lib/constants";
+import { GradingFees } from "@/components/dashboard/grading-fees";
+import { toDateInput } from "@/lib/dates";
 import { RequestGradingButton } from "./request-grading-button";
 import { WithdrawRequestButton } from "./withdraw-request-button";
 
 export default async function MemberGradingPage() {
-  const user = await requireRole([...MEMBER_ROLES]);
+  const user = await requireRole([...MEMBER_PAGE_ROLES]);
 
   const [
     { state: windowState, note: windowNote },
@@ -31,6 +33,7 @@ export default async function MemberGradingPage() {
     upcoming,
     requests,
     gradingCharges,
+    scheduled,
   ] =
     await Promise.all([
       getGradingWindow(),
@@ -44,7 +47,6 @@ export default async function MemberGradingPage() {
           toBelt: gradingCandidates.toBelt,
           awardedRank: gradingCandidates.awardedRank,
           outcome: gradingCandidates.outcome,
-          totalScore: gradingCandidates.totalScore,
           examinerNotes: gradingCandidates.examinerNotes,
           scoreBasics: gradingCandidates.scoreBasics,
           scorePoomsae: gradingCandidates.scorePoomsae,
@@ -97,6 +99,10 @@ export default async function MemberGradingPage() {
         })
         .from(dues)
         .where(and(eq(dues.userId, user.id), isNotNull(dues.gradingId))),
+      db.select({ id: gradingEvents.id, title: gradingEvents.title, date: gradingEvents.date, fee: gradingEvents.fee })
+        .from(gradingEvents)
+        .where(and(inArray(gradingEvents.status, ["scheduled", "in_progress"]), gte(gradingEvents.date, toDateInput(new Date()))))
+        .orderBy(asc(gradingEvents.date)),
     ]);
 
   const chargeByGrading = new Map(
@@ -149,7 +155,7 @@ export default async function MemberGradingPage() {
         {!windowState.open && (
           <p className="mt-1 text-xs text-zinc-500">
             Your coaches open a grading period when one is approaching. Keep training in the
-            meantime - attendance and time at your current belt both count toward eligibility.
+            meantime; attendance and time at your current belt are guidance for the coaches.
           </p>
         )}
       </div>
@@ -236,13 +242,13 @@ export default async function MemberGradingPage() {
       )}
 
       {!context ? (
-        <div className="rounded-xl border border-black/10 bg-white p-6 text-sm text-zinc-500">
+        <div className="rounded-xl border border-black/10 bg-white p-4 sm:p-6 text-sm text-zinc-500">
           Your member profile is not set up yet, so your grading standing cannot be worked out.
           Speak to a coach or the General Secretary.
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-black/10 bg-white p-6">
+          <div className="rounded-xl border border-black/10 bg-white p-4 sm:p-6">
             <h2 className="font-semibold text-brand-black">Where You Stand</h2>
             <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
               <div>
@@ -257,7 +263,7 @@ export default async function MemberGradingPage() {
                   {context.attendancePct === null ? "-" : `${context.attendancePct}%`}
                 </dd>
                 <dd className="text-xs text-zinc-500">
-                  {ATTENDANCE_THRESHOLDS.promotionalGrading}% needed to grade
+                  {ATTENDANCE_THRESHOLDS.promotionalGrading}% suggested attendance reference
                 </dd>
               </div>
               <div>
@@ -278,25 +284,26 @@ export default async function MemberGradingPage() {
           </div>
 
           {options.length === 0 ? (
-            <div className="rounded-xl border border-black/10 bg-white p-6 text-sm text-zinc-500">
+            <div className="rounded-xl border border-black/10 bg-white p-4 sm:p-6 text-sm text-zinc-500">
               You are at the top of the club ladder. Further Dan grades are certified directly
               by Kukkiwon/NTF.
             </div>
           ) : (
-            <div className="rounded-xl border border-black/10 bg-white p-6">
+            <div className="rounded-xl border border-black/10 bg-white p-4 sm:p-6">
               <h2 className="font-semibold text-brand-black">Your Next Grading</h2>
               <p className="mt-1 text-sm text-zinc-500">
                 {windowState.open
                   ? "Grading is open - request the rank you want to be considered for, and a coach will accept or decline it."
-                  : "This is what the requirements look like for you today. Requesting to grade opens once a grading period starts."}
+                  : "                  This is the current guidance for your next grading. Requesting opens once a grading period starts."}
               </p>
 
+              <div className="mt-4"><GradingFees events={scheduled} /></div>
               <div className="mt-4 space-y-4">
                 {options.map((o) => (
                   <div
                     key={o.target.id}
                     className={`rounded-lg border p-4 ${
-                      o.eligible ? "border-green-200 bg-green-50" : "border-zinc-200 bg-zinc-50"
+                      o.eligible ? "border-green-200 bg-green-50" : "border-yellow-200 bg-yellow-50"
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -315,18 +322,6 @@ export default async function MemberGradingPage() {
                     </div>
 
                     <div className="mt-2 grid gap-1 text-xs text-zinc-600 sm:grid-cols-2">
-                      <div>
-                        Pass mark:{" "}
-                        <span className="font-medium text-zinc-800">
-                          {o.promotion.passMark}%
-                        </span>
-                      </div>
-                      <div>
-                        Minimum per component:{" "}
-                        <span className="font-medium text-zinc-800">
-                          {o.promotion.minCriterionScore}/{MAX_CRITERION_SCORE}
-                        </span>
-                      </div>
                       <div className="sm:col-span-2">
                         Poomsae:{" "}
                         <span className="font-medium text-zinc-800">
@@ -340,37 +335,40 @@ export default async function MemberGradingPage() {
                         </Link>
                       </div>
                       <div className="sm:col-span-2">
-                        Examined on:{" "}
+                        Suggested criteria:{" "}
                         <span className="font-medium text-zinc-800">
-                          {criteriaFor(o.target)
-                            .map((c) => `${c.label} (${c.weight})`)
-                            .join(", ")}
+                          {criteriaFor().map((c) => c.label).join(", ")}
                         </span>
                       </div>
                     </div>
 
                     {o.isDouble && (
                       <p className="mt-2 text-xs text-zinc-600">
-                        A double grading covers two ranks in one sitting: both forms, a higher
-                        pass mark, and a higher minimum on every component. Failing it means no
-                        promotion at all, not a fall back to the single step.
+                        A double grading covers two ranks in one sitting and includes both
+                        ranks&apos; forms. Coaches decide how to assess the result.
                       </p>
                     )}
 
                     {o.eligible ? (
                       <p className="mt-2 text-xs font-medium text-green-700">
-                        You meet every requirement.
+                        No eligibility guidance warnings.
                       </p>
                     ) : (
-                      <ul className="mt-2 list-inside list-disc text-xs text-zinc-600">
-                        {o.blockers.map((b) => (
-                          <li key={b.code}>{b.message}</li>
-                        ))}
-                      </ul>
+                      <>
+                        <p className="mt-2 text-xs font-medium text-yellow-900">
+                          Guidance only. These notes do not prevent a coach from entering or
+                          promoting you.
+                        </p>
+                        <ul className="mt-1 list-inside list-disc text-xs text-zinc-700">
+                          {o.blockers.map((b) => (
+                            <li key={b.code}>{b.message}</li>
+                          ))}
+                        </ul>
+                      </>
                     )}
 
                     {windowState.open && !pendingRequest && (
-                      <RequestGradingButton targetBeltId={o.target.id} />
+                      <RequestGradingButton targetBeltId={o.target.id} events={scheduled} />
                     )}
                   </div>
                 ))}
@@ -387,7 +385,7 @@ export default async function MemberGradingPage() {
         </>
       )}
 
-      <div className="rounded-xl border border-black/10 bg-white p-6">
+      <div className="rounded-xl border border-black/10 bg-white p-4 sm:p-6">
         <h2 className="font-semibold text-brand-black">Grading History</h2>
         {history.length === 0 ? (
           <p className="mt-3 text-sm text-zinc-500">
@@ -422,11 +420,6 @@ export default async function MemberGradingPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {h.totalScore && (
-                        <span className="text-sm font-semibold text-brand-black">
-                          {Number(h.totalScore)}%
-                        </span>
-                      )}
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${OUTCOME_STYLES[h.outcome]}`}
                       >

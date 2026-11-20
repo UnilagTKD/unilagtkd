@@ -1,11 +1,8 @@
 import "server-only";
 
 /**
- * Fixed-window rate limiter, in-process memory only. Fine for a single Node
- * server; if this ever runs on multi-instance serverless, each instance
- * tracks its own counts, so the effective limit multiplies by instance count.
- * Good enough for the login/reset/spam-prevention limits below - none of them
- * need to be exact, just bounded.
+ * Development-only fixed-window limiter. Production callers use the atomic
+ * PostgreSQL implementation in shared-rate-limit.ts, without memory fallback.
  */
 const buckets = new Map<string, { count: number; resetAt: number }>();
 

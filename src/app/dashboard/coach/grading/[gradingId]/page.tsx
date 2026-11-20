@@ -1,3 +1,4 @@
+import { recordIdFromSlug } from "@/lib/record-slug";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/session";
@@ -9,8 +10,10 @@ import {
   dues,
   gradingEvents,
   gradingCandidates,
+  gradingExaminerInvites,
+  gradingExaminerMarks,
 } from "@/db/schema";
-import { eq, inArray, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import {
   gradingOptions,
   beltById,
@@ -27,6 +30,7 @@ import { AddCandidateForm } from "./add-candidate-form";
 import { CandidateScoring } from "./candidate-scoring";
 import { PublishGradingButton } from "./publish-grading-button";
 import { GradingFeeControl } from "./grading-fee-control";
+import { ExternalExaminerInviteForm } from "./external-examiner-invite-form";
 
 export default async function GradingPanelPage({
   params,
@@ -34,7 +38,9 @@ export default async function GradingPanelPage({
   params: Promise<{ gradingId: string }>;
 }) {
   await requireRole(["coach"]);
-  const { gradingId } = await params;
+  const { gradingId: slug } = await params;
+  const gradingId = recordIdFromSlug(slug);
+  if (!gradingId) notFound();
 
   const [grading] = await db
     .select()
@@ -44,7 +50,14 @@ export default async function GradingPanelPage({
 
   if (!grading) notFound();
 
-  const [{ state: windowState }, entered, roster, duesRows, attendanceByUser] =
+  const [
+    { state: windowState },
+    entered,
+    roster,
+    duesRows,
+    attendanceByUser,
+    externalMarkRows,
+  ] =
     await Promise.all([
     getGradingWindow(),
     db
@@ -60,7 +73,6 @@ export default async function GradingPanelPage({
         scoreKyukpa: gradingCandidates.scoreKyukpa,
         scoreHoshinsul: gradingCandidates.scoreHoshinsul,
         scoreTheory: gradingCandidates.scoreTheory,
-        totalScore: gradingCandidates.totalScore,
         outcome: gradingCandidates.outcome,
         examinerNotes: gradingCandidates.examinerNotes,
         overrideReason: gradingCandidates.eligibilityOverrideReason,
@@ -94,7 +106,35 @@ export default async function GradingPanelPage({
       .where(eq(dues.paid, false))
       .groupBy(dues.userId),
     attendanceStatsByUser(),
+    db
+      .select({
+        candidateId: gradingExaminerMarks.candidateId,
+        examinerName: gradingExaminerInvites.examinerName,
+        examinerEmail: gradingExaminerInvites.examinerEmail,
+        scoreBasics: gradingExaminerMarks.scoreBasics,
+        scorePoomsae: gradingExaminerMarks.scorePoomsae,
+        scoreKyorugi: gradingExaminerMarks.scoreKyorugi,
+        scoreKyukpa: gradingExaminerMarks.scoreKyukpa,
+        scoreHoshinsul: gradingExaminerMarks.scoreHoshinsul,
+        scoreTheory: gradingExaminerMarks.scoreTheory,
+        notes: gradingExaminerMarks.notes,
+        submittedAt: gradingExaminerMarks.submittedAt,
+      })
+      .from(gradingExaminerMarks)
+      .innerJoin(
+        gradingExaminerInvites,
+        eq(gradingExaminerInvites.id, gradingExaminerMarks.inviteId)
+      )
+      .where(eq(gradingExaminerInvites.gradingId, gradingId))
+      .orderBy(desc(gradingExaminerMarks.submittedAt)),
   ]);
+
+  const externalMarksByCandidate = new Map<string, typeof externalMarkRows>();
+  for (const mark of externalMarkRows) {
+    const rows = externalMarksByCandidate.get(mark.candidateId) ?? [];
+    rows.push(mark);
+    externalMarksByCandidate.set(mark.candidateId, rows);
+  }
 
   const outstandingByUser = new Map(duesRows.map((d) => [d.userId, d.outstanding]));
   const enteredIds = new Set(entered.map((c) => c.userId));
@@ -174,9 +214,22 @@ export default async function GradingPanelPage({
         awardedRankId: c.awardedRank,
         isDouble: promotion?.isDouble ?? false,
         outcome: c.outcome,
-        totalScore: c.totalScore,
         examinerNotes: c.examinerNotes,
         overrideReason: c.overrideReason,
+        externalMarks: (externalMarksByCandidate.get(c.id) ?? []).map((mark) => ({
+          examinerName: mark.examinerName,
+          examinerEmail: mark.examinerEmail,
+          submittedAt: mark.submittedAt.toISOString(),
+          notes: mark.notes,
+          scores: {
+            basics: mark.scoreBasics,
+            poomsae: mark.scorePoomsae,
+            kyorugi: mark.scoreKyorugi,
+            kyukpa: mark.scoreKyukpa,
+            hoshinsul: mark.scoreHoshinsul,
+            theory: mark.scoreTheory,
+          },
+        })),
         scores: {
           basics: c.scoreBasics,
           poomsae: c.scorePoomsae,
@@ -278,6 +331,8 @@ export default async function GradingPanelPage({
           This grading was cancelled. No promotions were applied.
         </div>
       )}
+
+      {!readOnly && <ExternalExaminerInviteForm gradingId={gradingId} />}
 
       {!readOnly && (
         <div className="rounded-xl border border-black/10 bg-white p-6">

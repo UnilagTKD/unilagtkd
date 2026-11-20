@@ -1,0 +1,15 @@
+﻿import assert from "node:assert/strict";
+import { sessionStartsAt, sessionExpiresAt, sessionHasEnded } from "../src/lib/training-session";
+import { memberAge } from "../src/lib/members";
+const session = { date: "2026-11-17", startTime: "16:30", endedAt: null };
+assert.equal(sessionStartsAt(session).toISOString(), "2026-11-17T15:30:00.000Z");
+assert.equal(sessionExpiresAt(session).toISOString(), "2026-11-18T15:30:00.000Z");
+assert.equal(sessionHasEnded(session, new Date("2026-11-18T15:29:59.999Z")), false);
+assert.equal(sessionHasEnded(session, new Date("2026-11-18T15:30:00.000Z")), true);
+assert.equal(sessionHasEnded({ ...session, endedAt: new Date("2026-11-17T17:00Z") }, new Date("2026-11-17T18:00Z")), true);
+assert.equal(sessionExpiresAt({ date: "2026-11-17", startTime: null }).toISOString(), "2026-11-17T23:00:00.000Z");
+assert.equal(memberAge("2000-11-18", "2026-11-17"), 25);
+assert.equal(memberAge("2000-11-17", "2026-11-17"), 26);
+assert.equal(memberAge(null), null);
+assert.equal(memberAge("2099-01-01", "2026-11-17"), null);
+console.log("Session expiry, Lagos timezone, exact 24-hour boundary, and age checks passed.");

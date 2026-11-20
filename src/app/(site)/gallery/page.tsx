@@ -1,10 +1,19 @@
+import { publicMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
-import { db } from "@/db";
-import { galleryItems } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { getGalleryPage, pageNumber } from "@/lib/public-content";
+import { SiteImage } from "@/components/site-image";
+import { PublicPagination } from "@/components/public-pagination";
+import { notFound } from "next/navigation";
+
+
 import { Reveal } from "@/components/reveal";
 
-export const metadata: Metadata = { title: "Gallery" };
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ page?: string }> }): Promise<Metadata> {
+  const page = pageNumber((await searchParams).page);
+  const result = await getGalleryPage(page);
+  if (page > result.pages) notFound();
+  return publicMetadata("/gallery" + (page > 1 ? "?page=" + page : ""), page > 1 ? { title: "Gallery — Page " + page } : {});
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   training: "Training",
@@ -12,11 +21,13 @@ const CATEGORY_LABELS: Record<string, string> = {
   tournament: "Tournaments",
 };
 
-export default async function GalleryPage() {
-  const photos = await db.select().from(galleryItems).orderBy(desc(galleryItems.createdAt));
+export default async function GalleryPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+  const page = pageNumber((await searchParams).page);
+  const { photos, pages } = await getGalleryPage(page);
+  if (page > pages) notFound();
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+    <div className="mx-auto max-w-[1800px] px-4 py-16 sm:px-6">
       <span className="text-sm font-semibold uppercase tracking-widest text-brand-red">
         Lookbook
       </span>
@@ -33,11 +44,11 @@ export default async function GalleryPage() {
           {photos.map((photo, i) => (
             <Reveal key={photo.id} delay={(i % 6) * 70} className="mb-4 break-inside-avoid">
               <figure>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <SiteImage
                   src={photo.imageUrl}
                   alt={photo.caption ?? "UNILAG Taekwondo Club"}
-                  className="w-full rounded-lg object-cover transition-transform duration-300 hover:scale-[1.02]"
+                  width={800} height={600} sizes="(max-width: 640px) 50vw, 33vw"
+                  className="aspect-[4/3] h-auto w-full rounded-lg object-cover transition-transform duration-300 hover:scale-[1.02]"
                 />
                 <figcaption className="mt-1 text-xs text-zinc-500">
                   {CATEGORY_LABELS[photo.category] ?? photo.category}
@@ -48,6 +59,7 @@ export default async function GalleryPage() {
           ))}
         </div>
       )}
+      <PublicPagination path="/gallery" page={page} pages={pages} />
     </div>
   );
 }

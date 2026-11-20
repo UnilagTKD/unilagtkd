@@ -1,3 +1,4 @@
+import { recordIdFromSlug } from "@/lib/record-slug";
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -88,7 +89,9 @@ export default async function ReceiptPage({
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const { duesId } = await params;
+  const { duesId: slug } = await params;
+  const duesId = recordIdFromSlug(slug);
+  if (!duesId) notFound();
 
   const [row] = await db
     .select({
