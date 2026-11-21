@@ -26,7 +26,8 @@ export async function sendEmail(to: string, subject: string, html: string, idemp
       !(await rateLimit("email:global", 100, 24 * 60 * 60_000)).allowed) return { ok: false as const, error: "Email limit reached. Please try again later." };
     const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) }, body: JSON.stringify({ from: FROM, reply_to: REPLY_TO, to: [to], subject, html }), signal: AbortSignal.timeout(15_000) });
     const result = await response.json();
-    if (!response.ok || typeof result.id !== "string") { securityLog("email_send_failed"); return { ok: false as const, error: "Failed to send email." }; }
+    if (!response.ok || typeof result.id !== "string") { securityLog("email_send_failed", { outcome: `provider_http_${response.status}` }); return { ok: false as const, error: "Failed to send email." }; }
+    securityLog("email_provider_accepted");
     return { ok: true as const };
   } catch {
     securityLog("email_send_failed");
