@@ -1,3 +1,4 @@
+import { SessionTimer } from "@/components/dashboard/session-timer";
 import { siteHref } from "@/lib/domains";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -64,6 +65,7 @@ const NAV_BY_ROLE: Record<UserRole, { href: string; label: string }[]> = {
   admin: [
     { href: "/dashboard/admin", label: "Administration" },
     { href: "/dashboard/admin/verifications", label: "Verifications" },
+    { href: "/dashboard/admin/examiners", label: "Examiners" },
     { href: "/dashboard/treasury/admissions", label: "Registration dues" },
     { href: "/dashboard/admin/cms", label: "Content management" },
     { href: "/dashboard/reports", label: "Monthly summaries" },
@@ -174,7 +176,7 @@ export default async function DashboardLayout({
           role={session.user.role}
           signOutAction={signOutAction}
         />
-        <main id="main-content" className="min-w-0 break-words p-4 sm:p-6 lg:p-8">{children}</main>
+        <main id="main-content" className="min-w-0 break-words p-4 sm:p-6 lg:p-8"><SessionTimer />{children}</main>
       </div>
     </div>
   );

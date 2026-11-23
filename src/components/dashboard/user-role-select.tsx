@@ -20,10 +20,18 @@ export function UserRoleSelect({
       defaultValue={currentRole}
       disabled={saving}
       onChange={async (e) => {
+        const select = e.currentTarget;
+        const nextRole = select.value as UserRole;
+        if (!window.confirm(`Change this member's role from ${currentRole} to ${nextRole}?`)) { select.value = currentRole; return; }
         setSaving(true);
-        await updateUserRole(userId, e.target.value as UserRole);
-        setSaving(false);
-        router.refresh();
+        try {
+          await updateUserRole(userId, nextRole);
+          window.alert(`Member role changed to ${nextRole}.`);
+          router.refresh();
+        } catch (error) {
+          select.value = currentRole;
+          window.alert(error instanceof Error ? error.message : "Could not update this role.");
+        } finally { setSaving(false); }
       }}
       className="rounded-md border border-zinc-300 px-2 py-1 text-xs"
     >

@@ -4,6 +4,7 @@ import { afterAccountAction } from "@/lib/action-notifications";
 import { revalidatePath } from "next/cache";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { auth } from "@/auth";
+import { requireRole } from "@/lib/session";
 import { db } from "@/db";
 import {
   memberProfiles,
@@ -295,7 +296,8 @@ export async function createExternalExaminerInvite(data: {
   examinerName: string;
   examinerEmail: string;
 }) {
-  const user = await requireCoach();
+  const user = await requireRole(["coach", "admin"]);
+  if (!(await rateLimit(`examiner-invite:${user.id}`, 20, 60_000)).allowed) throw new Error("Too many invitations.");
   if (
     !data ||
     typeof data !== "object" ||

@@ -35,7 +35,7 @@ export const getHomeContent = unstable_cache(async () => {
     db.select({ value: count() }).from(subCommittees),
   ]);
   return { recentAchievements: results, recentPhotos: photos.map(galleryImage), recentInsights: posts.map(postImage), medalCount: medals.value, memberCount: members.value, subCommitteeCount: committees.value };
-}, ["public-home-v1"], options);
+}, ["public-home-v2"], options);
 export const getAchievements = unstable_cache(() => db.select().from(achievements).orderBy(desc(achievements.competitionDate)), ["public-achievements-v1"], options);
 export const getStructure = unstable_cache(async () => {
   const [people, committees] = await Promise.all([db.select().from(leadership).orderBy(asc(leadership.displayOrder)), db.select().from(subCommittees).orderBy(asc(subCommittees.name))]);

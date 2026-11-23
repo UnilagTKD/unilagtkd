@@ -325,7 +325,7 @@ async function createDuesChargeCore(data: {
       amount: data.amount,
       paid: false,
     }).returning({ id: dues.id });
-    revalidatePath("/dashboard/exco");
+    revalidatePath("/dashboard", "layout");
     return { ok: true as const, charged: 1, skipped: 0, notificationChargeIds: [charge.id] };
   }
 
