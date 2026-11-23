@@ -29,7 +29,7 @@ import { requireExcoPermission } from "@/lib/session";
 import {
   isExcoPosition,
   EXCO_POSITION_LABELS,
-  EXCO_POSITION_LIMIT,
+  excoPositionLimit,
   excoPositionIsFull,
   isLeaveReason,
   type ExcoPosition,
@@ -186,8 +186,8 @@ async function updateExcoPositionCore(userId: string, position: ExcoPosition | n
     if (target.position === position) return { ok: true as const, changed: false, previousPosition: target.position, position, previousRole: target.role, role: target.role };
     if (position !== null) {
       // Inactive assignments still reserve a place until explicitly removed.
-      const holders = await tx.select({ id: users.id }).from(users).where(eq(users.excoPosition, position)).limit(EXCO_POSITION_LIMIT);
-      if (excoPositionIsFull(position, holders.length, target.position)) return { ok: false as const, error: `${EXCO_POSITION_LABELS[position]} already has ${EXCO_POSITION_LIMIT} people assigned. Remove an existing appointment before adding another.` };
+      const holders = await tx.select({ id: users.id }).from(users).where(eq(users.excoPosition, position)).limit(excoPositionLimit(position));
+      if (excoPositionIsFull(position, holders.length, target.position)) return { ok: false as const, error: `${EXCO_POSITION_LABELS[position]} already has ${excoPositionLimit(position)} people assigned. Remove an existing appointment before adding another.` };
     }
     const role = position !== null && (target.role === "student" || target.role === "alumni") ? "exco" as const : target.role;
     await tx.update(users).set({ excoPosition: position, role }).where(eq(users.id,userId));

@@ -10,10 +10,10 @@ export const EXCO_POSITIONS = [
 ] as const;
 
 export type ExcoPosition = (typeof EXCO_POSITIONS)[number];
-export const EXCO_POSITION_LIMIT = 2;
+export function excoPositionLimit(position: ExcoPosition) { return position === "vice_president" ? 2 : 1; }
 
 export function excoPositionIsFull(position: ExcoPosition, occupied: number, currentPosition: ExcoPosition | null) {
-  return position !== currentPosition && occupied >= EXCO_POSITION_LIMIT;
+  return position !== currentPosition && occupied >= excoPositionLimit(position);
 }
 
 export const EXCO_POSITION_LABELS: Record<ExcoPosition, string> = {

@@ -46,6 +46,7 @@ export async function sendMonthlyReport(month = lastReportMonth()) {
   const [report] = await db.select().from(monthlyReports).where(eq(monthlyReports.month, month));
   const accounts = await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.status, "active"), or(eq(users.role, "coach"), eq(users.excoPosition, "president"))));
   const recipients = new Set([...accounts.map(a => a.email), ...await getReportExtras()].map(email => email.trim().toLowerCase()));
+  if (!recipients.size) throw new Error("No monthly report recipients are configured. Save an extra email address, or appoint an active president or coach, then retry.");
   if (recipients.size) await db.insert(monthlyReportDeliveries).values([...recipients].map(email => ({ reportId: report.id, email }))).onConflictDoNothing();
   const link = `${await getBaseUrl()}/dashboard/reports?month=${month}`;
   const message = Object.entries(report.summary).map(([key,value]) => `${key}: ${value}`).join("\n");
@@ -59,6 +60,7 @@ export async function sendMonthlyReport(month = lastReportMonth()) {
     if (result.ok) submitted++;
   }
   for (const account of accounts) await notifyUser({ userId: account.id, eventKey: `monthly-report:${report.id}`, title: "Monthly summary available", message: `The club summary for ${month} is ready.`, href: `/dashboard/reports?month=${month}`, email: false });
-  return { id: report.id, month, recipients: recipients.size, submitted };
+  const statuses = await db.select({ status: monthlyReportDeliveries.status }).from(monthlyReportDeliveries).where(and(eq(monthlyReportDeliveries.reportId, report.id), inArray(monthlyReportDeliveries.email, [...recipients])));
+  return { id: report.id, month, recipients: recipients.size, submitted, failed: statuses.filter(row => row.status === "failed").length, awaiting: statuses.filter(row => row.status === "pending" || row.status === "sending").length, accepted: statuses.filter(row => row.status === "sent").length };
 }
 

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateExcoPosition } from "@/app/dashboard/actions";
-import { EXCO_POSITIONS, EXCO_POSITION_LABELS, EXCO_POSITION_LIMIT, excoPositionIsFull, type ExcoPosition } from "@/lib/exco";
+import { EXCO_POSITIONS, EXCO_POSITION_LABELS, excoPositionLimit, excoPositionIsFull, type ExcoPosition } from "@/lib/exco";
 import type { UserRole } from "@/types/next-auth";
 
 type Success = Extract<Awaited<ReturnType<typeof updateExcoPosition>>, { ok: true }>;
@@ -55,7 +55,7 @@ export function ExcoPositionSelect({ userId, currentRole, currentPosition, membe
         const occupied = positionCounts?.[position] ?? 0;
         const full = excoPositionIsFull(position, occupied, currentPosition);
         return <option key={position} value={position} disabled={full || currentStatus === "inactive"}>
-          {EXCO_POSITION_LABELS[position]}{positionCounts ? ` (${occupied}/${EXCO_POSITION_LIMIT}${full ? ", full" : ""})` : ""}
+          {EXCO_POSITION_LABELS[position]}{positionCounts ? ` (${occupied}/${excoPositionLimit(position)}${full ? ", full" : ""})` : ""}
         </option>;
       })}
     </select>
