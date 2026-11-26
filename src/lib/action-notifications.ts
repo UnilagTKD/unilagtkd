@@ -8,6 +8,7 @@ import { notifyUser, notifyReviewers } from "@/lib/notifications";
 import { securityLog } from "@/lib/security-log";
 import { sendNotificationEmail } from "@/lib/email";
 import { getBaseUrl } from "@/lib/site-url";
+import { profileReviewStages } from "@/lib/verification-permissions";
 
 /** Called only after the authorized business action resolves successfully. */
 export async function afterAccountAction(name: string, args: unknown[], result: unknown) {
@@ -64,9 +65,13 @@ export async function afterAccountAction(name: string, args: unknown[], result: 
       }
       if (name === "submitLeaveRequest") await notifyReviewers(["coach"], eventKey, "Leave request received", "A member has submitted a leave request for review.", "/dashboard/coach", actorId);
       if (name === "updateOwnProfile") {
-        await notifyReviewers(["admin"], eventKey, "Profile changes awaiting review", "A member has requested a profile update. Sign in to review the changes.", "/dashboard/admin/verifications", actorId);
-        const [pending] = actorId ? await db.select({ proposed: profileChangeRequests.proposed }).from(profileChangeRequests).where(and(eq(profileChangeRequests.userId, actorId), eq(profileChangeRequests.status, "pending"))).limit(1) : [];
-        if (pending && Object.keys(pending.proposed).every(key => key === "beltGrade")) await notifyReviewers(["coach"], eventKey, "Belt changes awaiting review", "A member has requested a belt-only profile update.", "/dashboard/coach/members", actorId);
+        const reviewers = await db.select({ id: users.id, role: users.role, position: users.excoPosition })
+          .from(users).where(and(eq(users.status, "active"), inArray(users.role, ["admin", "coach", "exco"])));
+        for (const reviewer of reviewers) {
+          if (reviewer.id !== actorId && profileReviewStages(reviewer.role, reviewer.position).length) {
+            await notifyUser({ userId: reviewer.id, eventKey, title: "Profile changes awaiting review", message: "A member has requested a profile update.", href: "/dashboard/verifications" });
+          }
+        }
       }
       if (name === "requestGrading") await notifyReviewers(["coach"], eventKey, "Grading request received", "A new grading request is awaiting review.", "/dashboard/coach/grading", actorId);
       if (name === "reportPayment" || name === "claimDuesPayment") await notifyReviewers(["exco", "admin"], eventKey, "Payment claim received", "A member has submitted a payment claim. Verify the transfer before confirming it.", "/dashboard/exco", actorId, true);

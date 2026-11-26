@@ -1,46 +1,44 @@
 import { redirect } from "next/navigation";
 import { eq, desc } from "drizzle-orm";
-import { auth } from "@/auth";
+import { getPortalAccount, getSession } from "@/lib/session";
 import { db } from "@/db";
-import { memberProfiles, users, profileChangeRequests } from "@/db/schema";
+import { memberProfiles, profileChangeRequests } from "@/db/schema";
 import { ProfileChangeStatus } from "@/components/dashboard/profile-change-status";
 import { ReceiptSignatureSettings } from "./receipt-signature-settings";
 import { canManageReceiptSignature } from "@/lib/exco";
+import { memberPhoto, memberPhotoReference } from "@/lib/member-photo";
 import { SettingsForm } from "./settings-form";
 
 export default async function SettingsPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
-  const [profile] = await db
-    .select({
-      fullName: memberProfiles.fullName,
-      department: memberProfiles.department,
-      faculty: memberProfiles.faculty,
-      levelYear: memberProfiles.levelYear,
-      phone: memberProfiles.phone,
-      address: memberProfiles.address,
-      avatarUrl: memberProfiles.avatarUrl,
-      signatureUrl: memberProfiles.signatureUrl,
-      beltGrade: memberProfiles.beltGrade,
-      membershipCategory: memberProfiles.membershipCategory,
-      matricOrStaffNo: memberProfiles.matricOrStaffNo,
-      graduationYear: memberProfiles.graduationYear,
-      institution: memberProfiles.institution,
-      occupation: memberProfiles.occupation,
-    })
-    .from(memberProfiles)
-    .where(eq(memberProfiles.userId, session.user.id))
-    .limit(1);
-
-  const [userRow] = await db
-    .select({ username: users.username, role: users.role, excoPosition: users.excoPosition })
-    .from(users)
-    .where(eq(users.id, session.user.id))
-    .limit(1);
-
-  const [latestRequest] = await db.select().from(profileChangeRequests)
-    .where(eq(profileChangeRequests.userId, session.user.id)).orderBy(desc(profileChangeRequests.createdAt)).limit(1);
+  const [[profile], account, [latestRequest]] = await Promise.all([
+    db
+      .select({
+        fullName: memberProfiles.fullName,
+        department: memberProfiles.department,
+        faculty: memberProfiles.faculty,
+        levelYear: memberProfiles.levelYear,
+        phone: memberProfiles.phone,
+        address: memberProfiles.address,
+        avatarUrl: memberPhotoReference(memberProfiles.avatarUrl, "profile"),
+        signatureUrl: memberProfiles.signatureUrl,
+        beltGrade: memberProfiles.beltGrade,
+        membershipCategory: memberProfiles.membershipCategory,
+        matricOrStaffNo: memberProfiles.matricOrStaffNo,
+        graduationYear: memberProfiles.graduationYear,
+        institution: memberProfiles.institution,
+        occupation: memberProfiles.occupation,
+      })
+      .from(memberProfiles)
+      .where(eq(memberProfiles.userId, session.user.id))
+      .limit(1),
+    getPortalAccount(session.user.id),
+    db.select().from(profileChangeRequests)
+      .where(eq(profileChangeRequests.userId, session.user.id)).orderBy(desc(profileChangeRequests.createdAt)).limit(1),
+  ]);
+  const photo = await memberPhoto(session.user.id, profile?.avatarUrl);
 
   return (
     <div className="max-w-xl space-y-8">
@@ -49,7 +47,11 @@ export default async function SettingsPage() {
         <p className="text-sm text-zinc-500">Update your profile and password</p>
       </div>
 
-      {userRow && canManageReceiptSignature(userRow.role, userRow.excoPosition) && <ReceiptSignatureSettings initialSignatureUrl={profile?.signatureUrl ?? ""} />}
+      {photo && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={photo} alt="Your profile picture" className="h-24 w-24 rounded-xl object-cover" />
+      )}
+      {canManageReceiptSignature(session.user.role, account?.position ?? null) && <ReceiptSignatureSettings initialSignatureUrl={profile?.signatureUrl ?? ""} />}
       {latestRequest && <ProfileChangeStatus request={latestRequest} />}
       <SettingsForm
         isCoach={session.user.role === "coach"}
@@ -59,7 +61,7 @@ export default async function SettingsPage() {
         initialDepartment={profile?.department ?? ""}
         initialFaculty={profile?.faculty ?? ""}
         initialLevelYear={profile?.levelYear ?? ""}
-        initialUsername={userRow?.username ?? ""}
+        initialUsername={account?.username ?? ""}
         initialPhone={profile?.phone ?? ""}
         initialAddress={profile?.address ?? ""}
         initialBeltGrade={profile?.beltGrade ?? ""}

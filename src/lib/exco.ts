@@ -116,6 +116,13 @@ export function isExcoPosition(value: unknown): value is ExcoPosition {
   return EXCO_POSITIONS.includes(value as ExcoPosition);
 }
 
+export function canValidateMembershipFitness(role: UserRole, position: ExcoPosition | null) {
+  return role === "coach" || (
+    (role === "exco" || role === "admin") &&
+    (position === "general_secretary" || position === "president")
+  );
+}
+
 /**
  * Resolves what a user may do inside the exco dashboard. An exco member with
  * no office assigned yet falls back to the read-only base permissions.

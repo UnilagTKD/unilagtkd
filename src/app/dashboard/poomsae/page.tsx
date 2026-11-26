@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { PoomsaeVideoCards } from "@/components/poomsae-video-cards";
 import { KUKKIWON_CHANNEL_URL, KUKKIWON_POOMSAE_PLAYLIST_ID } from "@/lib/constants";
 
 export default async function DashboardPoomsaePage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   return (

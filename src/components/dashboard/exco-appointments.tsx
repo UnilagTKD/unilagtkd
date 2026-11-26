@@ -1,5 +1,5 @@
 ﻿import { asc, eq, inArray } from "drizzle-orm";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { count } from "drizzle-orm";
 import { db } from "@/db";
 import { users, memberProfiles } from "@/db/schema";
@@ -8,7 +8,7 @@ import { canAppointExco } from "@/lib/verification-permissions";
 import { ExcoPositionSelect } from "./exco-position-select";
 import { EXCO_POSITIONS, EXCO_POSITION_LABELS, excoPositionLimit, type ExcoPosition } from "@/lib/exco";
 export async function ExcoAppointments() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user || !canAppointExco(session.user.role)) return null;
   const [members, occupied] = await Promise.all([
     db.select({ id: users.id, email: users.email, role: users.role, position: users.excoPosition, name: memberProfiles.fullName, status: users.status })

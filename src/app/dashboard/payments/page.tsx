@@ -2,7 +2,7 @@ import { recordSlug } from "@/lib/record-slug";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { eq, desc } from "drizzle-orm";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { db } from "@/db";
 import { dues } from "@/db/schema";
 import { BANK_DETAILS } from "@/lib/constants";
@@ -14,7 +14,7 @@ import { MEMBER_PAGE_ROLES } from "@/lib/roles";
 import type { UserRole } from "@/types/next-auth";
 
 export default async function PaymentsPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
   // Exco officers pay dues like every other member, so they belong here too.
   const allowed: UserRole[] = [...MEMBER_PAGE_ROLES];

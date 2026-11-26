@@ -1,4 +1,4 @@
-import { canAppointExco, canReviewProfileChange } from "@/lib/verification-permissions";
+import { canAppointExco, profileReviewStages } from "@/lib/verification-permissions";
 import {
   resolveRank,
   rankLabel,
@@ -237,11 +237,11 @@ console.log(" ", rankLabel(rank("1st-dan")));
 check("admin appoints Exco", canAppointExco("admin"), true);
 check("coach appoints Exco", canAppointExco("coach"), true);
 check("Exco cannot appoint Exco", canAppointExco("exco"), false);
-check("coach approves belt-only requests", canReviewProfileChange("coach", { beltGrade: "Black Belt 1st Dan" }), true);
-check("coach cannot approve contact requests", canReviewProfileChange("coach", { phone: "08000000000" }), false);
-check("coach cannot approve mixed requests", canReviewProfileChange("coach", { beltGrade: "Black Belt 1st Dan", levelYear: "300" }), false);
-check("admin verifies mixed requests", canReviewProfileChange("admin", { beltGrade: "Black Belt 1st Dan", levelYear: "300" }), true);
-check("President cannot approve profile changes", canReviewProfileChange("exco", { beltGrade: "Black Belt 1st Dan" }), false);
+check("coach can review the coach step", profileReviewStages("coach", null).join(), "coach");
+check("Secretary can review the secretary step", profileReviewStages("exco", "general_secretary").join(), "general_secretary");
+check("President can review the president step", profileReviewStages("exco", "president").join(), "president");
+check("admin can review the admin step", profileReviewStages("admin", null).join(), "admin");
+check("Treasurer cannot review profile changes", profileReviewStages("exco", "treasurer").length, 0);
 check("Treasurer retains payment verification", excoPermissions("exco", "treasurer").includes("dues:manage"), true);
 check("President cannot verify payments", excoPermissions("exco", "president").includes("dues:manage"), false);
 check("Secretary cannot verify membership", excoPermissions("exco", "general_secretary").includes("applications:manage"), false);

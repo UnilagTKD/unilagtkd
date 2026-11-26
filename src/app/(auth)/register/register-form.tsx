@@ -61,6 +61,7 @@ export function RegisterForm({ subCommittees, semester }: { subCommittees: SubCo
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isReadingImage, setIsReadingImage] = useState(false);
   const [protection, setProtection] = useState<BotProtectionInput>({ website: "", token: "" });
   const [protectionVersion, setProtectionVersion] = useState(0);
   const [trackingLink, setTrackingLink] = useState("");
@@ -112,17 +113,24 @@ export function RegisterForm({ subCommittees, semester }: { subCommittees: SubCo
   }
 
   async function onSubmit(data: ApplicationInput) {
+    if (isReadingImage) return;
     setIsSubmitting(true);
     setSubmitError(null);
-    const result = await submitApplication(data, protection);
-    setIsSubmitting(false);
 
-    if (result.ok) {
-      setTrackingLink(result.trackingLink);
-      setSubmitted(true);
-    } else {
+    try {
+      const result = await submitApplication(data, protection);
+      if (result.ok) {
+        setTrackingLink(result.trackingLink);
+        setSubmitted(true);
+        return;
+      }
       setSubmitError(result.error);
       setProtectionVersion((version) => version + 1);
+    } catch {
+      setSubmitError("The application could not be submitted. Please try again.");
+      setProtectionVersion((version) => version + 1);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -180,6 +188,8 @@ export function RegisterForm({ subCommittees, semester }: { subCommittees: SubCo
 
             <Field label="Passport Photograph (white background)">
               <PhotoUpload
+                localOnly
+                onUploadingChange={setIsReadingImage}
                 value={photoData}
                 onChange={(dataUrl) => setValue("photoData", dataUrl, { shouldValidate: true })}
                 error={errors.photoData?.message}
@@ -511,7 +521,7 @@ export function RegisterForm({ subCommittees, semester }: { subCommittees: SubCo
               <p className="mt-2">Pay the semester dues using your full name as the narration. Upload your bank transfer receipt below. Uploading a receipt is a payment claim; the treasurer will verify the actual transfer.</p>
             </div>
             <Field label="Payment reference" error={errors.paymentReference?.message}><input {...register("paymentReference")} className={inputClass} maxLength={200} /></Field>
-            <PhotoUpload privateUpload value={paymentReceiptData || ""} onChange={value => setValue("paymentReceiptData", value, { shouldValidate: true })} error={errors.paymentReceiptData?.message} itemLabel="Payment receipt" previewAlt="Payment receipt preview" noValueLabel="No receipt selected" helpText="PNG, JPEG, or WebP receipt image under 1MB. Stored privately for verification." previewClassName="object-contain" />
+            <PhotoUpload privateUpload onUploadingChange={setIsReadingImage} value={paymentReceiptData || ""} onChange={value => setValue("paymentReceiptData", value, { shouldValidate: true })} error={errors.paymentReceiptData?.message} itemLabel="Payment receipt" previewAlt="Payment receipt preview" noValueLabel="No receipt selected" helpText="PNG, JPEG, or WebP receipt image under 1MB. Stored privately for verification." previewClassName="object-contain" />
             <p className="text-sm text-zinc-600">
               By submitting, you certify that all information provided is
               true, accurate, and complete, and pledge to uphold the five
@@ -531,7 +541,7 @@ export function RegisterForm({ subCommittees, semester }: { subCommittees: SubCo
           <button
             type="button"
             onClick={back}
-            disabled={step === 0}
+            disabled={step === 0 || isReadingImage || isSubmitting}
             className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-700 disabled:opacity-40"
           >
             Back
@@ -541,14 +551,15 @@ export function RegisterForm({ subCommittees, semester }: { subCommittees: SubCo
             <button
               type="button"
               onClick={next}
-              className="rounded-full bg-brand-red px-6 py-2 text-sm font-semibold text-white hover:bg-brand-red-dark"
+              disabled={isReadingImage}
+              className="rounded-full bg-brand-red px-6 py-2 text-sm font-semibold text-white hover:bg-brand-red-dark disabled:opacity-60"
             >
               Continue
             </button>
           ) : (
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isReadingImage}
               className="rounded-full bg-brand-red px-6 py-2 text-sm font-semibold text-white hover:bg-brand-red-dark disabled:opacity-60"
             >
               {isSubmitting ? "Submitting..." : "Submit Application"}

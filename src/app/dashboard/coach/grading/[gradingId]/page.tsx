@@ -49,6 +49,7 @@ export default async function GradingPanelPage({
     .limit(1);
 
   if (!grading) notFound();
+  const readOnly = grading.status === "published" || grading.status === "cancelled";
 
   const [
     { state: windowState },
@@ -57,6 +58,7 @@ export default async function GradingPanelPage({
     duesRows,
     attendanceByUser,
     externalMarkRows,
+    feeCharges,
   ] =
     await Promise.all([
     getGradingWindow(),
@@ -83,7 +85,7 @@ export default async function GradingPanelPage({
       .innerJoin(users, eq(users.id, gradingCandidates.userId))
       .leftJoin(memberProfiles, eq(memberProfiles.userId, gradingCandidates.userId))
       .where(eq(gradingCandidates.gradingId, gradingId)),
-    db
+    readOnly ? [] : db
       .select({
         id: users.id,
         email: users.email,
@@ -97,7 +99,7 @@ export default async function GradingPanelPage({
       .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
       .where(inArray(users.role, [...MEMBER_ROLES]))
       .groupBy(users.id, memberProfiles.id),
-    db
+    readOnly ? [] : db
       .select({
         userId: dues.userId,
         outstanding: sql<number>`count(${dues.id})`.mapWith(Number),
@@ -105,7 +107,7 @@ export default async function GradingPanelPage({
       .from(dues)
       .where(eq(dues.paid, false))
       .groupBy(dues.userId),
-    attendanceStatsByUser(),
+    readOnly ? new Map() : attendanceStatsByUser(),
     db
       .select({
         candidateId: gradingExaminerMarks.candidateId,
@@ -127,6 +129,18 @@ export default async function GradingPanelPage({
       )
       .where(eq(gradingExaminerInvites.gradingId, gradingId))
       .orderBy(desc(gradingExaminerMarks.submittedAt)),
+    db.select({
+      userId: dues.userId,
+      amount: dues.amount,
+      paid: dues.paid,
+      paymentClaimed: dues.paymentClaimed,
+      receiptNo: dues.receiptNo,
+      fullName: memberProfiles.fullName,
+      email: users.email,
+    }).from(dues)
+      .innerJoin(users, eq(users.id, dues.userId))
+      .leftJoin(memberProfiles, eq(memberProfiles.userId, dues.userId))
+      .where(eq(dues.gradingId, gradingId)),
   ]);
 
   const externalMarksByCandidate = new Map<string, typeof externalMarkRows>();
@@ -138,25 +152,6 @@ export default async function GradingPanelPage({
 
   const outstandingByUser = new Map(duesRows.map((d) => [d.userId, d.outstanding]));
   const enteredIds = new Set(entered.map((c) => c.userId));
-  const readOnly = grading.status === "published" || grading.status === "cancelled";
-
-  // Fee charges raised against this grading, so the panel can see who has paid
-  // without leaving the grading screen.
-  const feeCharges = await db
-    .select({
-      userId: dues.userId,
-      amount: dues.amount,
-      paid: dues.paid,
-      paymentClaimed: dues.paymentClaimed,
-      receiptNo: dues.receiptNo,
-      fullName: memberProfiles.fullName,
-      email: users.email,
-    })
-    .from(dues)
-    .innerJoin(users, eq(users.id, dues.userId))
-    .leftJoin(memberProfiles, eq(memberProfiles.userId, dues.userId))
-    .where(eq(dues.gradingId, gradingId));
-
   const feePaidCount = feeCharges.filter((c) => c.paid).length;
 
 

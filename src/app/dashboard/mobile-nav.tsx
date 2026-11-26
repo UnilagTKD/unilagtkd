@@ -4,8 +4,7 @@ import { siteHref } from "@/lib/domains";
 import Link from "next/link";
 import { useState } from "react";
 import { ClubLogo } from "@/components/club-logo";
-
-type NavLink = { href: string; label: string };
+import { DashboardNavLinks, type DashboardNavLink } from "./nav-links";
 
 export function DashboardMobileNav({
   navLinks,
@@ -13,7 +12,7 @@ export function DashboardMobileNav({
   role,
   signOutAction,
 }: {
-  navLinks: NavLink[];
+  navLinks: DashboardNavLink[];
   email: string;
   role: string;
   signOutAction: () => void;
@@ -46,18 +45,11 @@ export function DashboardMobileNav({
 
       {open && (
         <div id="dashboard-mobile-menu" className="sidebar-scroll max-h-[calc(100dvh-3.5rem)] overflow-y-auto border-t border-white/15 px-4 py-3">
-          <nav className="flex flex-col gap-1 text-sm font-medium">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2 text-white hover:bg-white/15"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
+          <DashboardNavLinks
+            links={navLinks}
+            className="flex flex-col gap-1 text-sm font-medium"
+            onNavigate={() => setOpen(false)}
+          />
           <div className="mt-3 border-t border-white/15 pt-3">
             <div className="mb-3 break-words text-xs text-blue-100">
               Signed in as <span className="font-medium text-white">{email}</span>

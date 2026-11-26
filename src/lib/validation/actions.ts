@@ -6,7 +6,12 @@ export const receiptNumber = z.string().trim().min(1).max(100).optional();
 export const money = z.string().trim().regex(/^\d{1,8}(?:\.\d{1,2})?$/, "Enter an amount with at most two decimal places.")
   .refine((value) => Number(value) > 0, "Enter a positive amount.");
 export const paymentReportSchema = z.object({ periodLabel: z.string().trim().min(1).max(100), amount: money, reference: paymentReference }).strict();
-export const duesChargeSchema = z.object({ userId: z.union([recordId, z.literal("__all__")]), periodLabel: z.string().trim().min(1).max(100), amount: money }).strict();
+export const duesChargeSchema = z.object({
+  userId: z.union([recordId, z.literal("__all__")]),
+  periodLabel: z.string().trim().min(1).max(100),
+  amount: money,
+  existingDebt: z.boolean().optional(),
+}).strict();
 export const trainingSessionSchema = z.object({
   title: z.string().trim().min(1).max(255), date: z.string().date(),
   startTime: z.string().regex(/^$|^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),

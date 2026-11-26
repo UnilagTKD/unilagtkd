@@ -3,7 +3,6 @@ import { sessionExpiresAt } from "@/lib/training-session";
 import Link from "next/link";
 import { expireTrainingSessions } from "@/lib/training-session-data";
 import { sessionHasEnded, sessionStartsAt } from "@/lib/training-session";
-import { ProfileChangeReviewPanel } from "@/components/dashboard/profile-change-review-panel";
 import { requireRole } from "@/lib/session";
 import { MEMBER_ROLES } from "@/lib/roles";
 import { db } from "@/db";
@@ -122,7 +121,6 @@ export default async function CoachDashboardPage() {
       </div>
 
       <Link href="/dashboard/coach/exco" className="inline-block rounded-full border border-brand-red px-4 py-2 text-sm font-semibold text-brand-red">Exco appointments</Link>
-      <ProfileChangeReviewPanel />
 
       <LeaveRequestsPanel
         reviewerId={coach.id}

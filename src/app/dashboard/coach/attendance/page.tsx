@@ -26,11 +26,16 @@ export default async function CoachAttendanceDashboardPage({ searchParams }: { s
   if (slug && !id) notFound();
   const [active, periods, selected] = await Promise.all([getActiveAttendancePeriod(), listAttendancePeriods(), getAttendancePeriod(id ?? undefined)]);
   if (slug && !selected) notFound();
-  const sessions = selected ? await periodSessions(selected.id) : [];
-  const liveStats = selected && !selected.closedAt ? await attendanceStatsByUser([...MEMBER_ROLES], selected.id) : new Map();
-  const snapshots = selected?.closedAt ? await db.select().from(attendancePeriodSnapshots).where(eq(attendancePeriodSnapshots.periodId, selected.id)) : [];
-  const members = selected && !selected.closedAt ? await db.select({ id: users.id, name: memberProfiles.fullName, email: users.email, beltGrade: memberProfiles.beltGrade }).from(users)
-    .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id)).where(inArray(users.role, [...MEMBER_ROLES])) : [];
+  const [sessions, liveStats, snapshots, members] = await Promise.all([
+    selected ? periodSessions(selected.id) : [],
+    selected && !selected.closedAt ? attendanceStatsByUser([...MEMBER_ROLES], selected.id) : new Map(),
+    selected?.closedAt ? db.select({
+      id: attendancePeriodSnapshots.id, userId: attendancePeriodSnapshots.userId,
+      name: attendancePeriodSnapshots.name, beltGrade: attendancePeriodSnapshots.beltGrade, stats: attendancePeriodSnapshots.stats,
+    }).from(attendancePeriodSnapshots).where(eq(attendancePeriodSnapshots.periodId, selected.id)) : [],
+    selected && !selected.closedAt ? db.select({ id: users.id, name: memberProfiles.fullName, email: users.email, beltGrade: memberProfiles.beltGrade }).from(users)
+      .leftJoin(memberProfiles, eq(memberProfiles.userId, users.id)).where(inArray(users.role, [...MEMBER_ROLES])) : [],
+  ]);
   const rows = selected?.closedAt ? snapshots.map(row => ({ id: row.id, userId: row.userId, name: row.name, beltGrade: row.beltGrade, stats: row.stats }))
     : members.map(row => ({ id: row.id, userId: row.id, name: row.name ?? row.email, beltGrade: row.beltGrade, stats: liveStats.get(row.id) }));
   return <div className="max-w-5xl space-y-6">

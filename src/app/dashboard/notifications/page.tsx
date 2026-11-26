@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { and, eq, desc, count, isNull, sql, getTableColumns } from "drizzle-orm";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { notifications } from "@/db/schema";
 import { readNotification, retryNotificationEmail } from "./actions";
 
 export default async function NotificationsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
   const input = (await searchParams).page;
   const page = input && /^[1-9]\d{0,5}$/.test(input) ? Number(input) : 1;

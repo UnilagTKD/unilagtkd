@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { db } from "@/db";
 import { applications, memberProfiles } from "@/db/schema";
 import { PrintButton } from "./print-button";
@@ -42,21 +42,34 @@ function SignatureLine({ label, value }: { label: string; value?: string | null 
 }
 
 export default async function ClubWaiverPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
-  const [application] = await db
-    .select()
-    .from(applications)
-    .where(eq(applications.userId, session.user.id))
-    .orderBy(desc(applications.createdAt))
-    .limit(1);
-
-  const [profile] = await db
-    .select()
-    .from(memberProfiles)
-    .where(eq(memberProfiles.userId, session.user.id))
-    .limit(1);
+  const [[application], [profile]] = await Promise.all([
+    db.select({
+      fullName: applications.fullName,
+      matricOrStaffNo: applications.matricOrStaffNo,
+      department: applications.department,
+      faculty: applications.faculty,
+      phone: applications.phone,
+      email: applications.email,
+      emergencyContactName: applications.emergencyContactName,
+      emergencyContactRelationship: applications.emergencyContactRelationship,
+      waiverRiskAck: applications.waiverRiskAck,
+      waiverReleaseAck: applications.waiverReleaseAck,
+      waiverMedicalAck: applications.waiverMedicalAck,
+      emergencyContactPhone: applications.emergencyContactPhone,
+      waiverSignatureName: applications.waiverSignatureName,
+      waiverSignatureDate: applications.waiverSignatureDate,
+      guardianSignature: applications.guardianSignature
+    }).from(applications).where(eq(applications.userId, session.user.id)).orderBy(desc(applications.createdAt)).limit(1),
+    db.select({
+      fullName: memberProfiles.fullName,
+      department: memberProfiles.department,
+      faculty: memberProfiles.faculty,
+      phone: memberProfiles.phone
+    }).from(memberProfiles).where(eq(memberProfiles.userId, session.user.id)).limit(1),
+  ]);
 
   const fullName = application?.fullName ?? profile?.fullName ?? "";
   const matric = application?.matricOrStaffNo ?? "";

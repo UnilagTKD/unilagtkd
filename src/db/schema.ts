@@ -545,6 +545,17 @@ export const dues = pgTable(
   ]
 ).enableRLS();
 
+export const membershipFitness = pgTable("membership_fitness", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  jumpingJacks: integer("jumping_jacks").notNull(),
+  pushUps: integer("push_ups").notNull(),
+  sitUps: integer("sit_ups").notNull(),
+  burpees: integer("burpees").notNull(),
+  shuttlePassed: boolean("shuttle_passed").notNull(),
+  validatedBy: uuid("validated_by").references(() => users.id, { onDelete: "set null" }),
+  validatedAt: timestamp("validated_at", { withTimezone: true }).notNull().defaultNow(),
+}, () => [serverOnlyPolicy()]).enableRLS();
+
 export const achievements = pgTable("achievements", {
   id: uuid("id").primaryKey().defaultRandom(),
   athleteName: varchar("athlete_name", { length: 255 }).notNull(),
@@ -709,6 +720,7 @@ export const profileChangeRequests = pgTable("profile_change_requests", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   before: jsonb("before").$type<Partial<import("@/lib/validation/profile").ProfileInput>>().notNull(),
   proposed: jsonb("proposed").$type<Partial<import("@/lib/validation/profile").ProfileInput>>().notNull(),
+  approvals: jsonb("approvals").$type<import("@/lib/verification-permissions").ProfileApprovals>().notNull().default({}),
   status: varchar("status", { length: 20 }).$type<"pending" | "approved" | "rejected">().notNull().default("pending"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   reviewedBy: uuid("reviewed_by").references(() => users.id),

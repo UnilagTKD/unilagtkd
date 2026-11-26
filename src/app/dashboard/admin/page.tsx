@@ -1,19 +1,19 @@
 import { ExcoAppointments } from "@/components/dashboard/exco-appointments";
 import Link from "next/link";
+import { Suspense } from "react";
 import { UsersRolesTable } from "@/components/dashboard/users-roles-table";
 import { db } from "@/db";
 import { applications, memberProfiles, users } from "@/db/schema";
 import { requireRole } from "@/lib/session";
-import { desc, eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 
 export default async function AdminDashboardPage() {
   const admin = await requireRole(["admin"]);
-  const [pendingApplications, userRows] = await Promise.all([
+  const [[pendingApplications], userRows] = await Promise.all([
     db
-      .select({ id: applications.id })
+      .select({ total: count() })
       .from(applications)
-      .where(eq(applications.status, "pending"))
-      .orderBy(desc(applications.createdAt)),
+      .where(eq(applications.status, "pending")),
     db
       .select({
         id: users.id,
@@ -41,7 +41,7 @@ export default async function AdminDashboardPage() {
 
       <section className="rounded-xl border border-black/10 bg-white p-4 sm:p-6">
         <h2 className="font-semibold">Verifications</h2>
-        <p className="mt-2 text-sm text-zinc-500">{pendingApplications.length} membership applications awaiting verification. Review profile changes and account recovery requests from the verification page.</p>
+        <p className="mt-2 text-sm text-zinc-500">{pendingApplications.total} membership applications awaiting verification. Review profile changes and account recovery requests from the verification page.</p>
         <Link href="/dashboard/admin/verifications" className="mt-3 inline-block text-sm font-semibold text-brand-red">Open verifications &rarr;</Link>
       </section>
 
@@ -62,7 +62,9 @@ export default async function AdminDashboardPage() {
         ].map(([href,title,description]) => <Link key={href} href={href} className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm hover:border-blue-400"><h2 className="font-semibold text-brand-blue">{title} ?</h2><p className="mt-2 text-sm text-zinc-600">{description}</p></Link>)}
       </section>
       <section className="rounded-xl bg-brand-blue p-6 text-white"><h2 className="font-semibold">Accounts and appointments</h2><p className="mt-2 text-sm">To set a coach account, find an approved member below and change their role to coach. Assign executive offices in Exco appointments. Existing members retain their profile when their role changes.</p><a href="#accounts" className="mt-3 inline-block rounded-full bg-white px-4 py-2 text-sm font-semibold text-brand-blue">Manage accounts</a><p className="mt-4 text-xs text-blue-100">Coaches manage training, attendance, leave and grading results. General payment claims and signed receipts remain with the treasurer. Admin can verify registration dues and approve accounts.</p></section>
-      <ExcoAppointments />
+      <Suspense fallback={<p role="status" className="text-sm text-zinc-500">Loading Exco appointments…</p>}>
+        <ExcoAppointments />
+      </Suspense>
 
       <section id="accounts" className="scroll-mt-6"><UsersRolesTable rows={userRows} currentUserId={admin.id} /></section>
     </div>

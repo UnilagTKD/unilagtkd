@@ -91,6 +91,18 @@ async function run() {
   assert.equal(isolation.schema, schema); assert.equal(isolation.users, 0);
   passed('isolated empty schema; no existing users copied');
   const admin = await account('admin'), coach = await account('coach'), treasurer = await account('exco', 'treasurer');
+  let secretary, president;
+  async function approveProfile(requestId) {
+    secretary ??= await account('exco', 'general_secretary');
+    president ??= await account('exco', 'president');
+    await action('reviewProfileChange', [requestId, 'admin', 'approved'], coach.cookie, true);
+    for (const [stage, reviewer] of [['coach', coach], ['general_secretary', secretary], ['president', president]]) {
+      assert.equal((await action('reviewProfileChange', [requestId, stage, 'approved'], reviewer.cookie)).value?.ok, true);
+      assert.equal((await sql`select status from profile_change_requests where id=${requestId}`)[0].status, 'pending');
+    }
+    assert.equal((await action('reviewProfileChange', [requestId, 'admin', 'approved'], admin.cookie)).value?.ok, true);
+    assert.equal((await sql`select status from profile_change_requests where id=${requestId}`)[0].status, 'approved');
+  }
   const committees = [];
   for (const name of ['Test welfare', 'Test media', 'Test technical']) committees.push((await sql`insert into sub_committees (name) values (${name}) returning id`)[0].id);
   const env = { ...process.env, DATABASE_URL: isolatedUrl.href, AUTH_URL: base, NEXTAUTH_URL: base, AUTH_TRUST_HOST: 'true', NEXT_PUBLIC_SITE_URL: '', NEXT_PUBLIC_PORTAL_URL: '', TURNSTILE_SECRET_KEY: '', NEXT_PUBLIC_TURNSTILE_SITE_KEY: '' };
@@ -226,8 +238,7 @@ async function run() {
     const confirmation = {confirmed:true,reason:'My verified membership and academic situation has changed.'};
     const approve = async () => {
       const [pending] = await sql`select id from profile_change_requests where user_id=${member.id} and status='pending'`;
-      await action('reviewProfileChange',[pending.id,'approved'],coach.cookie,true);
-      assert.equal((await action('reviewProfileChange',[pending.id,'approved'],admin.cookie)).value.ok,true);
+      await approveProfile(pending.id);
     };
     assert.equal((await action('updateOwnProfile',[{...details,membershipCategory:'alumni'},confirmation],member.cookie)).value.ok,false);
     details={...details,membershipCategory:'alumni',graduationYear:'2025'};
@@ -252,7 +263,11 @@ async function run() {
     details={...details,membershipCategory:'alumni'};
     assert.equal((await action('updateOwnProfile',[details,confirmation],member.cookie)).value.ok,true);await approve();
     const [officer]=await sql`select role,exco_position from users where id=${member.id}`;assert.equal(officer.role,'exco');assert.equal(officer.exco_position,'welfare_officer');
-    passed('verified student/alumni/non-student/Staff transitions, course changes, required identity details, pending-state protection, admin-only review, and preserved Exco privileges');
+    assert.equal((await action('changeOwnUsername', ['workflow_member'], member.cookie)).value?.ok, true);
+    assert.notEqual((await sql`select username from users where id=${member.id}`)[0].username, 'workflow_member');
+    await approve();
+    assert.equal((await sql`select username from users where id=${member.id}`)[0].username, 'workflow_member');
+    passed('verified membership and username changes, four approvals, and preserved Exco privileges');
     return;
   }
   if (process.env.REPORT_ADMISSION_CHECK === 'true') {
@@ -292,17 +307,16 @@ async function run() {
   assert.equal((await action('updateOwnProfile', [profile, {confirmed:true,reason:'Progressed to the next academic level'}], member.cookie)).value?.ok, true);
   const [request] = await sql`select id from profile_change_requests where user_id=${member.id} and status='pending'`;
   assert.equal((await sql`select level_year from member_profiles where user_id=${member.id}`)[0].level_year, '100');
-  await action('reviewProfileChange', [request.id, 'approved'], coach.cookie, true);
-  assert.equal((await action('reviewProfileChange', [request.id, 'approved'], admin.cookie)).value?.ok, true);
+  await approveProfile(request.id);
   assert.equal((await sql`select level_year from member_profiles where user_id=${member.id}`)[0].level_year, '200');
-  passed('immutable name; profile changes stay pending until admin approval');
+  passed('immutable name; profile changes stay pending until all four approvals');
   assert.equal((await action('updateOwnProfile', [{ ...profile, beltGrade: 'White Belt 10th Geup' }], member.cookie)).value?.ok, true);
   const [beltRequest] = await sql`select id from profile_change_requests where user_id=${member.id} and status='pending'`;
-  assert.equal((await action('reviewProfileChange', [beltRequest.id, 'approved'], coach.cookie)).value?.ok, true);
+  await approveProfile(beltRequest.id);
   const coachSettings = await page('/dashboard/settings', coach.cookie);
   assert.match(coachSettings, /Black Belt 9th Dan/);
   assert.ok(!/<option[^>]*value="White Belt/.test(coachSettings));
-  passed('coach belt-only approval; coach belt options limited to black belt Dans');
+  passed('four approvals for belt changes; coach belt options limited to black belt Dans');
   const appointees = [await account('student'), await account('student'), await account('student')];
   await action('updateExcoPosition', [appointees[0].id, 'welfare_officer'], coach.cookie);
   await action('updateExcoPosition', [appointees[1].id, 'welfare_officer'], admin.cookie);

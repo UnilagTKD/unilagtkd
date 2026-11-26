@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { ResourcesContent } from "@/components/resources-content";
 
 export default async function DashboardResourcesPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   return (

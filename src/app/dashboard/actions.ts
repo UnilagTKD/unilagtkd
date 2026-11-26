@@ -120,6 +120,7 @@ async function reviewApplicationCore(
   revalidatePath("/dashboard/admin/verifications");
   revalidatePath("/dashboard/coach");
   revalidatePath("/dashboard/exco");
+  revalidatePath("/dashboard/membership-form");
   if (!result.approved) return { ok: true as const, setupLink: null };
   const email = await sendApprovalEmail(result.email, result.fullName, baseUrl + "/login");
   return { ok: true as const, setupLink: null, emailSent: email.ok, loginReady: true };
@@ -313,10 +314,43 @@ async function createDuesChargeCore(data: {
   userId: string;
   periodLabel: string;
   amount: string;
+  existingDebt?: boolean;
 }) {
   await requireExcoPermission("dues:manage");
   data = validate(duesChargeSchema, data);
   const periodLabel = data.periodLabel;
+
+  if (data.existingDebt) {
+    validate(recordId, data.userId);
+    const charge = await db.transaction(async (tx) => {
+      const [member] = await tx.select({ id: users.id }).from(users)
+        .where(eq(users.id, data.userId)).for("update");
+      if (!member) throw new Error("Choose an existing member account.");
+
+      const [duplicate] = await tx.select({ id: dues.id }).from(dues)
+        .where(and(
+          eq(dues.userId, member.id),
+          sql`lower(trim(${dues.periodLabel})) = lower(${periodLabel})`,
+          eq(dues.amount, data.amount),
+        )).limit(1);
+      if (duplicate) return null;
+
+      const [created] = await tx.insert(dues).values({
+        userId: member.id,
+        periodLabel,
+        amount: data.amount,
+        paid: false,
+      }).returning({ id: dues.id });
+      return created;
+    });
+    if (charge) revalidatePath("/dashboard", "layout");
+    return {
+      ok: true as const,
+      charged: charge ? 1 : 0,
+      skipped: charge ? 0 : 1,
+      notificationChargeIds: charge ? [charge.id] : [],
+    };
+  }
 
   if (data.userId !== ALL_MEMBERS) {
     const [charge] = await db.insert(dues).values({
@@ -374,6 +408,7 @@ async function markDuesPaidCore(duesId: string, receiptNo?: string) {
     .update(dues)
     .set({ paid: true, paidAt: new Date(), recordedBy: user.id })
     .where(and(eq(dues.id, duesId), eq(dues.paid, false), isNull(dues.receiptNo)));
+  revalidatePath("/dashboard/membership-form");
   revalidatePath("/dashboard/exco");
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");
@@ -957,6 +992,7 @@ async function issueReceiptCore(duesId: string, receiptNo?: string, claimVersion
   revalidatePath("/dashboard/student");
   revalidatePath("/dashboard/alumni");
   revalidatePath("/dashboard/grading");
+  revalidatePath("/dashboard/membership-form");
 
   return { ok: true as const, receiptNo: number };
 }

@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
-import { desc, eq } from "drizzle-orm";
-import { auth } from "@/auth";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { getSession } from "@/lib/session";
 import { db } from "@/db";
-import { applications, memberProfiles } from "@/db/schema";
+import { applications, dues, memberProfiles, membershipFitness } from "@/db/schema";
+import { memberPhotoReference } from "@/lib/member-photo";
+import { getSemesterDues } from "@/lib/semester-dues";
 import { PrintButton } from "./print-button";
 
 /* Form UTC-A01 (2026), laid out to match the club's printed intake form so a
@@ -69,24 +71,79 @@ function SignRule({ label }: { label: string }) {
 }
 
 export default async function MembershipFormPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
-  const [application] = await db
-    .select()
-    .from(applications)
-    .where(eq(applications.userId, session.user.id))
-    .orderBy(desc(applications.createdAt))
-    .limit(1);
-
-  const [profile] = await db
-    .select()
-    .from(memberProfiles)
-    .where(eq(memberProfiles.userId, session.user.id))
-    .limit(1);
+  const [[application], [profile], [baselineFitness]] = await Promise.all([
+    db.select({
+      semesterLabel: applications.semesterLabel,
+      paymentStatus: applications.paymentStatus,
+      paymentReviewedAt: applications.paymentReviewedAt,
+      status: applications.status,
+      photoData: memberPhotoReference(applications.photoData, "application"),
+      membershipCategory: applications.membershipCategory,
+      gender: applications.gender,
+      dob: applications.dob,
+      fullName: applications.fullName,
+      matricOrStaffNo: applications.matricOrStaffNo,
+      utmeJambNo: applications.utmeJambNo,
+      department: applications.department,
+      faculty: applications.faculty,
+      levelYear: applications.levelYear,
+      phone: applications.phone,
+      email: applications.email,
+      address: applications.address,
+      bloodGroup: applications.bloodGroup,
+      genotype: applications.genotype,
+      allergies: applications.allergies,
+      chronicConditions: applications.chronicConditions,
+      recentInjuries: applications.recentInjuries,
+      emergencyContactName: applications.emergencyContactName,
+      emergencyContactRelationship: applications.emergencyContactRelationship,
+      emergencyContactPhone: applications.emergencyContactPhone,
+      altPhone: applications.altPhone,
+      priorTraining: applications.priorTraining,
+      beltGrade: applications.beltGrade,
+      affiliatedClub: applications.affiliatedClub,
+      statementOfPurpose: applications.statementOfPurpose,
+      reviewedAt: applications.reviewedAt,
+    }).from(applications).where(eq(applications.userId, session.user.id)).orderBy(desc(applications.createdAt)).limit(1),
+    db.select({
+      avatarUrl: memberPhotoReference(memberProfiles.avatarUrl, "profile"),
+      membershipCategory: memberProfiles.membershipCategory,
+      gender: memberProfiles.gender,
+      dob: memberProfiles.dob,
+      fullName: memberProfiles.fullName,
+      matricOrStaffNo: memberProfiles.matricOrStaffNo,
+      department: memberProfiles.department,
+      faculty: memberProfiles.faculty,
+      levelYear: memberProfiles.levelYear,
+      phone: memberProfiles.phone,
+      address: memberProfiles.address,
+      beltGrade: memberProfiles.beltGrade,
+      affiliatedClub: memberProfiles.affiliatedClub,
+    }).from(memberProfiles).where(eq(memberProfiles.userId, session.user.id)).limit(1),
+    db.select().from(membershipFitness).where(eq(membershipFitness.userId, session.user.id)).limit(1),
+  ]);
 
   const a = application;
   const p = profile;
+  const semester = a?.semesterLabel ?? (await getSemesterDues()).label;
+  const [semesterPayment] = await db.select({ receiptNo: dues.receiptNo, paidAt: dues.paidAt }).from(dues)
+    .where(and(
+      eq(dues.userId, session.user.id),
+      eq(dues.periodLabel, `${semester} semester dues`.slice(0, 100)),
+      eq(dues.paid, true),
+      isNull(dues.gradingId),
+    ))
+    .orderBy(desc(dues.paidAt))
+    .limit(1);
+  const paid = a?.paymentStatus === "confirmed" || Boolean(semesterPayment);
+  const paymentConfirmedAt = a?.paymentStatus === "confirmed"
+    ? a.paymentReviewedAt ?? semesterPayment?.paidAt
+    : semesterPayment?.paidAt;
+  const approved = a?.status === "approved";
+  const photo = a?.photoData || p?.avatarUrl;
   const category = (a?.membershipCategory ?? p?.membershipCategory ?? "").toLowerCase();
   const gender = (a?.gender ?? p?.gender ?? "").toLowerCase();
   const dob = a?.dob ?? p?.dob ?? null;
@@ -131,13 +188,18 @@ export default async function MembershipFormPage() {
             </div>
             <div className="text-xs italic text-zinc-600">(Fill in Block Letters)</div>
           </div>
-          <div className="flex h-32 w-28 flex-none items-center justify-center border-2 border-dashed border-[#1e3a5f] p-2 text-center text-[9px] font-bold leading-tight text-[#1e3a5f]">
-            AFFIX PASSPORT
-            <br />
-            PHOTOGRAPH
-            <br />
-            (WHITE B/G)
-          </div>
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo} alt="Applicant’s passport photograph" className="h-32 w-28 flex-none object-contain" />
+          ) : (
+            <div className="flex h-32 w-28 flex-none items-center justify-center border-2 border-dashed border-[#1e3a5f] p-2 text-center text-[9px] font-bold leading-tight text-[#1e3a5f]">
+              AFFIX PASSPORT
+              <br />
+              PHOTOGRAPH
+              <br />
+              (WHITE B/G)
+            </div>
+          )}
         </header>
 
         <SectionHeading n={1} title="MEMBERSHIP CATEGORY" />
@@ -288,34 +350,36 @@ export default async function MembershipFormPage() {
           <div className="mt-3 grid gap-4 text-[10px] leading-6 text-zinc-800 sm:grid-cols-3">
             <div>
               <div className="font-bold">I. Baseline Fitness Metrics:</div>
-              <div>Jumping Jacks (1m): ______</div>
-              <div>Push-ups (1m): ______</div>
-              <div>Sit-ups (1m): ______</div>
-              <div>Burpees (1m): ______</div>
+              <div>Jumping Jacks (1m): {baselineFitness?.jumpingJacks ?? "______"}</div>
+              <div>Push-ups (1m): {baselineFitness?.pushUps ?? "______"}</div>
+              <div>Sit-ups (1m): {baselineFitness?.sitUps ?? "______"}</div>
+              <div>Burpees (1m): {baselineFitness?.burpees ?? "______"}</div>
               <div className="mt-1">
-                Shuttle Status: <Box label="Pass" />
-                <Box label="Fail" />
+                Shuttle Status: <Box checked={baselineFitness?.shuttlePassed === true} label="Pass" />
+                <Box checked={baselineFitness?.shuttlePassed === false} label="Fail" />
               </div>
+              <Box checked={Boolean(baselineFitness)} label="Fitness validated" />
+              {baselineFitness && <div>Date: {fmt(baselineFitness.validatedAt)}</div>}
             </div>
             <div className="sm:border-l sm:border-dashed sm:border-zinc-400 sm:pl-4">
               <div className="font-bold">II. Financial Clearance:</div>
               <div className="mt-1">
-                Semester Dues: <Box label="Paid" />
-                <Box label="Pending" />
+                Semester Dues: <Box checked={paid} label="Paid" />
+                <Box checked={!paid} label="Pending" />
               </div>
-              <div>Receipt Number: __________</div>
+              <div>Receipt Number: {semesterPayment?.receiptNo ?? "__________"}</div>
               <div>Treasurer Sig: __________</div>
-              <div>Date: ____/____/20____</div>
+              <div>Date: {fmt(paymentConfirmedAt) || "____/____/20____"}</div>
             </div>
             <div className="sm:border-l sm:border-dashed sm:border-zinc-400 sm:pl-4">
               <div className="font-bold">III. Final Executive Action:</div>
-              <div>Assigned Rank: __________</div>
+              <div>Assigned Rank: {p?.beltGrade ?? "__________"}</div>
               <div className="mt-1">
-                Status: <Box label="Approved" />
+                Status: <Box checked={approved} label="Approved" />
                 <Box label="Deferred" />
               </div>
               <div>Head Coach Sign: __________</div>
-              <div>Date: ____/____/20____</div>
+              <div>Date: {fmt(approved ? a.reviewedAt : null) || "____/____/20____"}</div>
             </div>
           </div>
         </div>

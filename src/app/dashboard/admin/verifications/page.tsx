@@ -1,4 +1,5 @@
 ﻿import { desc, eq, isNotNull } from "drizzle-orm";
+import { Suspense } from "react";
 import { requireRole } from "@/lib/session";
 import { db } from "@/db";
 import { applications, users, memberProfiles } from "@/db/schema";
@@ -14,9 +15,13 @@ export default async function AdminVerificationsPage() {
       .from(users).leftJoin(memberProfiles,eq(memberProfiles.userId,users.id)).where(isNotNull(users.resetRequestedAt)).orderBy(desc(users.resetRequestedAt)),
   ]);
   return <div className="max-w-5xl space-y-6">
-    <header><h1 className="text-2xl font-bold">Admin verifications</h1><p className="mt-1 text-sm text-zinc-500">Verify membership applications, profile changes, and account recovery. Coaches can also approve belt-only changes. Admins and the treasurer can verify registration payments from Registration dues. Leave approval stays with coaches.</p></header>
+    <header><h1 className="text-2xl font-bold">Admin verifications</h1><p className="mt-1 text-sm text-zinc-500">Verify membership applications and account recovery, and record the admin approval for profile changes. Admins and the treasurer can verify registration payments from Registration dues. Leave approval stays with coaches.</p></header>
     <section className="space-y-4 rounded-xl border border-black/10 bg-white p-4 sm:p-6"><h2 className="font-semibold">Membership applications ({pending.length})</h2>{pending.map(application=><ApplicationReview key={application.id} application={application}/>)}{pending.length===0&&<p className="text-sm text-zinc-500">No applications awaiting verification.</p>}</section>
-    <ProfileChangeReviewPanel />
+    <div id="profile-reviews" className="scroll-mt-20">
+      <Suspense fallback={<p role="status" className="text-sm text-zinc-500">Loading profile change requests…</p>}>
+        <ProfileChangeReviewPanel />
+      </Suspense>
+    </div>
     <section className="space-y-4 rounded-xl border border-black/10 bg-white p-4 sm:p-6"><h2 className="font-semibold">Account recovery ({resets.length})</h2>{resets.map(request=><PasswordResetReview key={request.id} request={request}/>)}{resets.length===0&&<p className="text-sm text-zinc-500">No account recovery requests.</p>}</section>
   </div>;
 }

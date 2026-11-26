@@ -2,9 +2,9 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import { cache } from "react";
 import { createHash } from "node:crypto";
-import { asc, count, desc, eq, and, inArray, sql, type AnyColumn } from "drizzle-orm";
+import { asc, count, desc, eq, and, exists, inArray, or, sql, type AnyColumn } from "drizzle-orm";
 import { db } from "@/db";
-import { achievements, galleryItems, insights, leadership, subCommittees, users } from "@/db/schema";
+import { achievements, applications, galleryItems, insights, leadership, subCommittees, users } from "@/db/schema";
 import { MEMBER_ROLES } from "@/lib/roles";
 export const PUBLIC_CONTENT_TAG = "public-content";
 export const GALLERY_PAGE_SIZE = 24, INSIGHTS_PAGE_SIZE = 12;
@@ -26,16 +26,27 @@ const galleryImage = <T extends { id: string; imageUrl: string }>(photo: T) => (
 // Public CMS data and public aggregate counts only; never individual accounts,
 // profiles, payments, or sessions.
 export const getHomeContent = unstable_cache(async () => {
-  const [results, photos, posts, [medals], [members], [committees]] = await Promise.all([
+  const [results, photos, posts, [totals]] = await Promise.all([
     db.select().from(achievements).orderBy(desc(achievements.competitionDate)).limit(3),
     db.select(GALLERY_COLUMNS).from(galleryItems).orderBy(desc(galleryItems.createdAt)).limit(4),
     db.select(POST_SUMMARY).from(insights).orderBy(desc(insights.createdAt)).limit(3),
-    db.select({ value: count() }).from(achievements),
-    db.select({ value: count() }).from(users).where(and(inArray(users.role, [...MEMBER_ROLES]), eq(users.status, "active"))),
-    db.select({ value: count() }).from(subCommittees),
+    db.select({
+      medalCount: db.$count(achievements),
+      memberCount: db.$count(users, and(
+        eq(users.status, "active"),
+        or(
+          inArray(users.role, [...MEMBER_ROLES]),
+          and(eq(users.role, "coach"), exists(
+            db.select({ id: applications.id }).from(applications)
+              .where(and(eq(applications.userId, users.id), eq(applications.status, "approved"))),
+          )),
+        ),
+      )),
+      subCommitteeCount: count(),
+    }).from(subCommittees),
   ]);
-  return { recentAchievements: results, recentPhotos: photos.map(galleryImage), recentInsights: posts.map(postImage), medalCount: medals.value, memberCount: members.value, subCommitteeCount: committees.value };
-}, ["public-home-v2"], options);
+  return { recentAchievements: results, recentPhotos: photos.map(galleryImage), recentInsights: posts.map(postImage), ...totals };
+}, ["public-home-v4"], options);
 export const getAchievements = unstable_cache(() => db.select().from(achievements).orderBy(desc(achievements.competitionDate)), ["public-achievements-v1"], options);
 export const getStructure = unstable_cache(async () => {
   const [people, committees] = await Promise.all([db.select().from(leadership).orderBy(asc(leadership.displayOrder)), db.select().from(subCommittees).orderBy(asc(subCommittees.name))]);

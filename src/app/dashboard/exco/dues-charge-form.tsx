@@ -13,43 +13,61 @@ export function DuesChargeForm({ students, existingDebt = false }: { students: {
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (existingDebt && !window.confirm("Record this outstanding debt as unpaid? Check it has not already been entered.")) return;
+    if (submitting) return;
     setSubmitting(true);
     setResult(null);
+    setError(null);
     const form = new FormData(e.currentTarget);
     const userId = String(form.get("userId"));
     try {
-    const outcome = await createDuesCharge({
-      userId,
-      periodLabel: String(form.get("periodLabel")),
-      amount: String(form.get("amount")),
-    });
-    setSubmitting(false);
-    if (userId === ALL_MEMBERS) {
-      setResult(
-        outcome.skipped > 0
-          ? `Charged ${outcome.charged} member(s). Skipped ${outcome.skipped} already charged for this period.`
-          : `Charged ${outcome.charged} member(s).`
-      );
-    } else {
-      setOpen(false);
+      const outcome = await createDuesCharge({
+        userId,
+        periodLabel: String(form.get("periodLabel")),
+        amount: String(form.get("amount")),
+        existingDebt,
+      });
+      if (existingDebt && outcome.skipped) {
+        setError("This member already has an entry with the same purpose and amount.");
+        return;
+      }
+      if (userId === ALL_MEMBERS) {
+        setResult(
+          outcome.skipped > 0
+            ? `Charged ${outcome.charged} member(s). Skipped ${outcome.skipped} already charged for this period.`
+            : `Charged ${outcome.charged} member(s).`
+        );
+      } else {
+        if (existingDebt) setResult("Debt allocated. The member can see it in Payments.");
+        setOpen(false);
+      }
+      router.refresh();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not save charge.");
+    } finally {
+      setSubmitting(false);
     }
-    router.refresh();
-    } catch (error) { setResult(error instanceof Error ? error.message : "Could not save charge."); } finally { setSubmitting(false); }
   }
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white hover:bg-brand-red-dark"
-      >
-        {existingDebt ? "+ Record existing debt" : "+ New Dues Charge"}
-      </button>
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => {
+            setResult(null);
+            setError(null);
+            setOpen(true);
+          }}
+          className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white hover:bg-brand-red-dark"
+        >
+          {existingDebt ? "+ Allocate debt" : "+ New Dues Charge"}
+        </button>
+        {result && <p role="status" className="text-sm text-green-700">{result}</p>}
+      </div>
     );
   }
 
@@ -74,17 +92,19 @@ export function DuesChargeForm({ students, existingDebt = false }: { students: {
       <Field label="Amount (₦)">
         <input name="amount" type="number" min="0.01" step="0.01" required className={inputClass} />
       </Field>
-      {result && <p className="text-xs font-medium text-green-700 sm:col-span-3">{result}</p>}
+      {result && <p role="status" className="text-xs font-medium text-green-700 sm:col-span-3">{result}</p>}
+      {error && <p role="alert" className="text-xs font-medium text-brand-red sm:col-span-3">{error}</p>}
       <div className="flex gap-3 sm:col-span-3">
         <button
           type="submit"
           disabled={submitting}
           className="rounded-full bg-brand-red px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
-          {submitting ? "Saving..." : existingDebt ? "Record unpaid debt" : "Add Charge"}
+          {submitting ? "Saving..." : existingDebt ? "Allocate debt" : "Add Charge"}
         </button>
         <button
           type="button"
+          disabled={submitting}
           onClick={() => setOpen(false)}
           className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700"
         >

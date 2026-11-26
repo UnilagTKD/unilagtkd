@@ -6,6 +6,7 @@ import { eq, desc } from "drizzle-orm";
 import { ATTENDANCE_THRESHOLDS, BANK_DETAILS } from "@/lib/constants";
 import { attendanceHistoryFor, attendanceStatsFor } from "@/lib/attendance-data";
 import { explainExclusions, isProvisional } from "@/lib/attendance";
+import { memberPhoto, memberPhotoReference } from "@/lib/member-photo";
 import { ClaimPaymentButton } from "./claim-payment-button";
 
 export async function MemberDashboard({
@@ -23,41 +24,29 @@ export async function MemberDashboard({
   // not take their student one away.
   const user = await requireRole(role === "student" ? ["student", "exco"] : [role]);
 
-  const [profile] = await db
-    .select({
-      fullName: memberProfiles.fullName,
-      membershipCategory: memberProfiles.membershipCategory,
-      matricOrStaffNo: memberProfiles.matricOrStaffNo,
-      department: memberProfiles.department,
-      faculty: memberProfiles.faculty,
-      levelYear: memberProfiles.levelYear,
-      beltGrade: memberProfiles.beltGrade,
-      assignedSubCommitteeId: memberProfiles.assignedSubCommitteeId,
-    })
-    .from(memberProfiles)
-    .where(eq(memberProfiles.userId, user.id))
-    .limit(1);
-
-  const [subCommittee] = profile?.assignedSubCommitteeId
-    ? await db
-        .select({ name: subCommittees.name })
-        .from(subCommittees)
-        .where(eq(subCommittees.id, profile.assignedSubCommitteeId))
-        .limit(1)
-    : [];
-
-  // Both come from `@/lib/attendance-data`, which drops sessions held before
-  // the member joined and sessions inside approved leave. See `@/lib/attendance`.
-  const [attendanceRows, stats] = await Promise.all([
+  const [[profile], attendanceRows, stats, duesRows] = await Promise.all([
+    db
+      .select({
+        fullName: memberProfiles.fullName,
+        avatarUrl: memberPhotoReference(memberProfiles.avatarUrl, "profile"),
+        membershipCategory: memberProfiles.membershipCategory,
+        matricOrStaffNo: memberProfiles.matricOrStaffNo,
+        department: memberProfiles.department,
+        faculty: memberProfiles.faculty,
+        levelYear: memberProfiles.levelYear,
+        beltGrade: memberProfiles.beltGrade,
+        subCommitteeName: subCommittees.name,
+      })
+      .from(memberProfiles)
+      .leftJoin(subCommittees, eq(subCommittees.id, memberProfiles.assignedSubCommitteeId))
+      .where(eq(memberProfiles.userId, user.id))
+      .limit(1),
     attendanceHistoryFor(user.id),
     attendanceStatsFor(user.id),
+    db.select().from(dues).where(eq(dues.userId, user.id)).orderBy(desc(dues.createdAt)),
   ]);
 
-  const duesRows = await db
-    .select()
-    .from(dues)
-    .where(eq(dues.userId, user.id))
-    .orderBy(desc(dues.createdAt));
+  const photo = await memberPhoto(user.id, profile?.avatarUrl);
 
   const attendancePct = stats?.pct ?? null;
   const outstandingDues = duesRows.filter((d) => !d.paid);
@@ -68,10 +57,7 @@ export async function MemberDashboard({
         {embedded ? <>
           <h2 className="text-xl font-bold text-brand-black">{title}</h2>
           <p className="text-sm text-zinc-500">{profile?.fullName ?? user.email}</p>
-        </> : <>
-          <h1 className="text-2xl font-bold text-brand-black">Welcome, {profile?.fullName ?? user.email}</h1>
-          <p className="text-sm text-zinc-500">{title}</p>
-        </>}
+        </> : <h1 className="text-2xl font-bold text-brand-black">{title}</h1>}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -110,7 +96,13 @@ export async function MemberDashboard({
       </div>
 
       <div className="rounded-xl border border-black/10 bg-white p-6">
-        <h2 className="font-semibold text-brand-black">Profile</h2>
+        <div className="flex items-center gap-4">
+          {photo && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo} alt="Your profile picture" className="h-20 w-20 shrink-0 rounded-xl object-cover" />
+          )}
+          <h2 className="font-semibold text-brand-black">Profile</h2>
+        </div>
         <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
           <div>
             <dt className="text-zinc-500">Membership Category</dt>
@@ -135,7 +127,7 @@ export async function MemberDashboard({
           {showSubCommittee && (
             <div>
               <dt className="text-zinc-500">Sub-Committee</dt>
-              <dd className="text-brand-black">{subCommittee?.name ?? "Not yet assigned"}</dd>
+              <dd className="text-brand-black">{profile?.subCommitteeName ?? "Not yet assigned"}</dd>
             </div>
           )}
         </dl>

@@ -2,9 +2,7 @@
 
 import { useRef, useState } from "react";
 import { uploadImage } from "@/app/upload-actions";
-import { IMAGE_MIME_TYPES } from "@/lib/validation/image";
-
-const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+import { IMAGE_MIME_TYPES, MAX_IMAGE_BYTES, isRasterImage } from "@/lib/validation/image";
 
 export function PhotoUpload({
   value,
@@ -16,6 +14,8 @@ export function PhotoUpload({
   previewClassName = "object-cover",
   itemLabel = "Photo",
   privateUpload = false,
+  localOnly = false,
+  onUploadingChange,
 }: {
   value: string;
   onChange: (dataUrl: string) => void;
@@ -26,6 +26,8 @@ export function PhotoUpload({
   previewClassName?: string;
   itemLabel?: string;
   privateUpload?: boolean;
+  localOnly?: boolean;
+  onUploadingChange?: (uploading: boolean) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -41,25 +43,39 @@ export function PhotoUpload({
       return;
     }
 
-    if (file.size > (privateUpload ? 1024 * 1024 : MAX_FILE_SIZE)) {
+    if (file.size > (privateUpload ? 1024 * 1024 : MAX_IMAGE_BYTES)) {
       setLocalError(`Image must be smaller than ${privateUpload ? "1MB" : "2MB"}.`);
       return;
     }
 
     setUploading(true);
-    const form = new FormData();
-    form.set("file", file);
+    onUploadingChange?.(true);
     try {
-      if (privateUpload) {
-        const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("Could not read receipt")); reader.readAsDataURL(file); });
+      if (privateUpload || localOnly) {
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error);
+          reader.onabort = () => reject(new Error("Image read cancelled"));
+          reader.readAsDataURL(file);
+        });
+        if (!isRasterImage(data)) {
+          setLocalError("This file is not a valid supported image.");
+          return;
+        }
         onChange(data);
         return;
       }
+      const form = new FormData();
+      form.set("file", file);
       const result = await uploadImage(form);
       if (result.ok) onChange(result.url);
       else setLocalError(result.error);
     } catch { setLocalError("Upload failed. Please try again."); }
-    finally { setUploading(false); }
+    finally {
+      setUploading(false);
+      onUploadingChange?.(false);
+    }
   }
 
   return (
@@ -79,7 +95,11 @@ export function PhotoUpload({
           ref={inputRef}
           type="file"
           accept="image/png,image/jpeg,image/webp"
-          onChange={(e) => handleFile(e.target.files?.[0])}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = "";
+            void handleFile(file);
+          }}
           className="hidden"
         />
         <button

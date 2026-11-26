@@ -58,6 +58,7 @@ export function ApplicationReview({ application }: { application: Application })
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={application.photoData}
+              loading="lazy"
               alt={application.fullName}
               className="h-12 w-12 flex-none rounded-lg object-cover"
             />

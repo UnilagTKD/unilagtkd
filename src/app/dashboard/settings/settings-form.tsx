@@ -5,7 +5,7 @@ import { useState } from "react";
 import { signOut } from "next-auth/react";
 import { Field, inputClass } from "@/components/form/fields";
 import { PasswordInput } from "@/components/form/password-input";
-import { updateOwnProfile, changeOwnPassword } from "./actions";
+import { updateOwnProfile, changeOwnPassword, changeOwnUsername } from "./actions";
 import { RANKS, resolveRank } from "@/lib/grading";
 import { BELT_SYSTEM } from "@/lib/constants";
 import { type MembershipCategory } from "@/lib/validation/academic";
@@ -58,7 +58,11 @@ export function SettingsForm({
   const [academicConfirmed, setAcademicConfirmed] = useState(false);
   const [levelYear, setLevelYear] = useState(initialLevelYear);
   const academicChanged = department !== initialDepartment || faculty !== initialFaculty || membershipCategory !== initialMembershipCategory || matricOrStaffNo !== initialMatricOrStaffNo || graduationYear !== initialGraduationYear || institution !== initialInstitution || occupation !== initialOccupation || levelYear !== initialLevelYear;
-  const username = initialUsername;
+  const [usernameDraft, setUsernameDraft] = useState<string | null>(null);
+  const username = usernameDraft ?? initialUsername;
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [usernameSaved, setUsernameSaved] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
   const [phone, setPhone] = useState(initialPhone);
   const [address, setAddress] = useState(initialAddress);
   const [beltGrade, setBeltGrade] = useState(initialBeltGrade);
@@ -89,6 +93,29 @@ export function SettingsForm({
     finally { setProfileSaving(false); }
   }
 
+  async function onChangeUsername(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUsernameSaving(true);
+    setUsernameError(null);
+    setUsernameSaved(false);
+
+    try {
+      const nextUsername = username.trim().toLowerCase();
+      const result = await changeOwnUsername(nextUsername);
+      if (result.ok) {
+        setUsernameDraft(null);
+        setUsernameSaved(true);
+        router.refresh();
+      } else {
+        setUsernameError(result.error);
+      }
+    } catch {
+      setUsernameError("Could not change your username. Please try again.");
+    } finally {
+      setUsernameSaving(false);
+    }
+  }
+
   async function onChangePassword(e: React.FormEvent) {
     e.preventDefault();
     setPasswordError(null);
@@ -116,6 +143,37 @@ export function SettingsForm({
 
   return (
     <div className="space-y-8">
+      <form onSubmit={onChangeUsername} className="space-y-4 rounded-xl border border-black/10 bg-white p-4 sm:p-6">
+        <h2 className="font-semibold text-brand-black">Change Username</h2>
+        <Field label="Username" error={usernameError ?? undefined}>
+          <input
+            value={username}
+            onChange={(event) => {
+              setUsernameDraft(event.target.value);
+              setUsernameSaved(false);
+              setUsernameError(null);
+            }}
+            disabled={usernameSaving}
+            required
+            maxLength={30}
+            autoCapitalize="none"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="e.g. jane_athlete"
+            className={inputClass}
+          />
+        </Field>
+        <p className="text-xs text-zinc-500">Use 3–30 letters, numbers, or underscores.</p>
+        {usernameSaved && <p role="status" className="text-sm text-green-700">Username change submitted for approval.</p>}
+        <button
+          type="submit"
+          disabled={usernameSaving || hasPendingRequest || username.trim().toLowerCase() === initialUsername}
+          className="rounded-full bg-brand-red px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-red-dark disabled:opacity-60"
+        >
+          {usernameSaving ? "Submitting…" : hasPendingRequest ? "Awaiting approval" : "Request username change"}
+        </button>
+      </form>
+
       <form onSubmit={onSaveProfile} className="space-y-4 rounded-xl border border-black/10 bg-white p-4 sm:p-6">
         <h2 className="font-semibold text-brand-black">Profile</h2>
 
@@ -128,7 +186,7 @@ export function SettingsForm({
           </Field>
         </div>
         <p className="text-xs text-zinc-500">
-          Name, email, and username remain fixed. Membership category, course, academic details, and contact changes require admin verification. Belt-only changes may be approved by a coach or admin. Your approved details remain in place until review.
+          Profile changes take effect after approval from the Coach, General Secretary, President, and Admin.
         </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -141,20 +199,7 @@ export function SettingsForm({
           <Field label="Institution / Organisation"><input value={institution} onChange={e=>setInstitution(e.target.value)} maxLength={200} className={inputClass}/></Field>
           {(membershipCategory==="non_student"||membershipCategory==="alumni")&&<Field label="Occupation / Current activity"><input value={occupation} onChange={e=>setOccupation(e.target.value)} maxLength={150} className={inputClass}/></Field>}
         </div>
-        {academicChanged&&<div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-4"><p className="text-sm">Provide the details relevant to your new category: students need matriculation number/course/faculty/level; alumni need former matriculation number/course/faculty/graduation year; staff need staff number/unit/institution; non-students need occupation or current activity.</p><Field label="Reason for the membership / academic change"><textarea value={changeReason} onChange={e=>setChangeReason(e.target.value)} minLength={10} maxLength={2000} required className={inputClass}/></Field><label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={academicConfirmed} onChange={e=>setAcademicConfirmed(e.target.checked)} required className="mt-1"/><span>I confirm these details are accurate and understand that admin must verify them before they take effect.</span></label></div>}
-        <Field label="Username">
-          <input
-            value={username}
-            readOnly
-            aria-readonly="true"
-            placeholder="e.g. jane_athlete"
-            className={inputClass}
-          />
-        </Field>
-        <p className="-mt-2 text-xs text-zinc-500">
-          Assigned during registration.
-        </p>
-
+        {academicChanged&&<div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-4"><p className="text-sm">Provide the details relevant to your new category: students need matriculation number/course/faculty/level; alumni need former matriculation number/course/faculty/graduation year; staff need staff number/unit/institution; non-students need occupation or current activity.</p><Field label="Reason for the membership / academic change"><textarea value={changeReason} onChange={e=>setChangeReason(e.target.value)} minLength={10} maxLength={2000} required className={inputClass}/></Field><label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={academicConfirmed} onChange={e=>setAcademicConfirmed(e.target.checked)} required className="mt-1"/><span>I confirm these details are accurate and understand that all four reviewers must approve them before they take effect.</span></label></div>}
         <Field label="Belt / Grade">
           <select
             aria-label="Belt / Grade"

@@ -1,20 +1,27 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { memberProfiles, users } from "@/db/schema";
 import { excoPermissions, type ExcoPermission } from "@/lib/exco";
 import type { UserRole } from "@/types/next-auth";
 import { rateLimit } from "@/lib/shared-rate-limit";
 import { securityLog } from "@/lib/security-log";
 
-export async function getSession() {
-  return auth();
-}
+export const getSession = cache(async () => auth());
+
+export const getPortalAccount = cache(async (userId: string) => {
+  const [account] = await db
+    .select({ username: users.username, fullName: memberProfiles.fullName, position: users.excoPosition })
+    .from(users).leftJoin(memberProfiles, eq(memberProfiles.userId, users.id))
+    .where(eq(users.id, userId)).limit(1);
+  return account;
+});
 
 export async function requireRole(allowedRoles: UserRole[]) {
-  const session = await auth();
+  const session = await getSession();
 
   if (!session?.user) {
     redirect("/login");
@@ -43,13 +50,13 @@ export async function getExcoPosition(userId: string) {
 }
 
 export async function getExcoContext() {
-  const session = await auth();
+  const session = await getSession();
 
   if (!session?.user) {
     redirect("/login");
   }
 
-  const position = await getExcoPosition(session.user.id);
+  const position = (await getPortalAccount(session.user.id))?.position ?? null;
   const permissions = excoPermissions(session.user.role, position);
 
   return {

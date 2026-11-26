@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { SafetyProtocols } from "@/components/safety-protocols";
 import { SAFETY_RED_FLAGS } from "@/lib/constants";
 
 export default async function DashboardSafetyPage() {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   return (

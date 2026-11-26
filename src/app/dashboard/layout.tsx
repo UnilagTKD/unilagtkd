@@ -1,13 +1,16 @@
 import { SessionTimer } from "@/components/dashboard/session-timer";
+import { DebtReminder } from "@/components/dashboard/debt-reminder";
+import { profileReviewStages } from "@/lib/verification-permissions";
 import { siteHref } from "@/lib/domains";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { auth, signOut } from "@/auth";
+import { signOut } from "@/auth";
+import { getPortalAccount, getSession } from "@/lib/session";
 import type { UserRole } from "@/types/next-auth";
 import { ClubLogo } from "@/components/club-logo";
-import { getExcoPosition } from "@/lib/session";
-import { EXCO_POSITION_SHORT_LABELS } from "@/lib/exco";
+import { canValidateMembershipFitness, EXCO_POSITION_SHORT_LABELS } from "@/lib/exco";
 import { DashboardMobileNav } from "./mobile-nav";
+import { DashboardNavLinks, type DashboardNavLink } from "./nav-links";
 import type { Metadata } from "next";
 import { PRIVATE_ROBOTS } from "@/lib/seo";
 import { db } from "@/db";
@@ -15,29 +18,27 @@ import { notifications } from "@/db/schema";
 import { and, eq, isNull, count } from "drizzle-orm";
 export const metadata: Metadata = { title: "Member portal", robots: PRIVATE_ROBOTS };
 
-const NAV_BY_ROLE: Record<UserRole, { href: string; label: string }[]> = {
+const SHARED_MEMBER_NAV = [
+  { href: "/dashboard/payments", label: "Payments" },
+  { href: "/dashboard/membership-form", label: "Membership Form" },
+  { href: "/dashboard/club-waiver", label: "Club Waiver" },
+  { href: "/dashboard/resources", label: "Resources" },
+  { href: "/dashboard/terminology", label: "Terminology" },
+  { href: "/dashboard/poomsae", label: "Poomsae" },
+  { href: "/dashboard/safety", label: "Injury & Safety" },
+];
+
+const NAV_BY_ROLE: Record<UserRole, DashboardNavLink[]> = {
   student: [
     { href: "/dashboard/student", label: "My Dashboard" },
-    { href: "/dashboard/payments", label: "Payments" },
-    { href: "/dashboard/membership-form", label: "Membership Form" },
-    { href: "/dashboard/club-waiver", label: "Club Waiver" },
-    { href: "/dashboard/resources", label: "Resources" },
-    { href: "/dashboard/terminology", label: "Terminology" },
-    { href: "/dashboard/poomsae", label: "Poomsae" },
-    { href: "/dashboard/safety", label: "Injury & Safety" },
+    ...SHARED_MEMBER_NAV,
     { href: "/dashboard/grading", label: "Grading" },
     { href: "/dashboard/leave", label: "Leave" },
     { href: "/dashboard/settings", label: "Settings" },
   ],
   alumni: [
     { href: "/dashboard/alumni", label: "My Dashboard" },
-    { href: "/dashboard/payments", label: "Payments" },
-    { href: "/dashboard/membership-form", label: "Membership Form" },
-    { href: "/dashboard/club-waiver", label: "Club Waiver" },
-    { href: "/dashboard/resources", label: "Resources" },
-    { href: "/dashboard/terminology", label: "Terminology" },
-    { href: "/dashboard/poomsae", label: "Poomsae" },
-    { href: "/dashboard/safety", label: "Injury & Safety" },
+    ...SHARED_MEMBER_NAV,
     { href: "/dashboard/grading", label: "Grading" },
     { href: "/dashboard/leave", label: "Leave" },
     { href: "/dashboard/settings", label: "Settings" },
@@ -51,13 +52,7 @@ const NAV_BY_ROLE: Record<UserRole, { href: string; label: string }[]> = {
     { href: "/dashboard/reports", label: "Monthly summaries" },
     { href: "/dashboard/coach/attendance", label: "Manage attendance" },
     { href: "/dashboard/coach/grading", label: "Manage grading" },
-    { href: "/dashboard/payments", label: "Payments" },
-    { href: "/dashboard/membership-form", label: "Membership Form" },
-    { href: "/dashboard/club-waiver", label: "Club Waiver" },
-    { href: "/dashboard/resources", label: "Resources" },
-    { href: "/dashboard/terminology", label: "Terminology" },
-    { href: "/dashboard/poomsae", label: "Poomsae" },
-    { href: "/dashboard/safety", label: "Injury & Safety" },
+    ...SHARED_MEMBER_NAV,
     { href: "/dashboard/grading", label: "My grading" },
     { href: "/dashboard/leave", label: "My leave" },
     { href: "/dashboard/settings", label: "Settings" },
@@ -70,19 +65,16 @@ const NAV_BY_ROLE: Record<UserRole, { href: string; label: string }[]> = {
     { href: "/dashboard/admin/cms", label: "Content management" },
     { href: "/dashboard/reports", label: "Monthly summaries" },
     { href: "/dashboard/messages", label: "Contact messages" },
+    ...SHARED_MEMBER_NAV,
+    { href: "/dashboard/grading", label: "My grading" },
+    { href: "/dashboard/leave", label: "My leave" },
     { href: "/dashboard/settings", label: "Settings" },
   ],
   // An exco officer is a member first: their member dashboard is unchanged and
   // their post adds a dashboard of its own, inserted below in the layout.
   exco: [
     { href: "/dashboard/student", label: "My Dashboard" },
-    { href: "/dashboard/payments", label: "Payments" },
-    { href: "/dashboard/membership-form", label: "Membership Form" },
-    { href: "/dashboard/club-waiver", label: "Club Waiver" },
-    { href: "/dashboard/resources", label: "Resources" },
-    { href: "/dashboard/terminology", label: "Terminology" },
-    { href: "/dashboard/poomsae", label: "Poomsae" },
-    { href: "/dashboard/safety", label: "Injury & Safety" },
+    ...SHARED_MEMBER_NAV,
     { href: "/dashboard/grading", label: "Grading" },
     { href: "/dashboard/leave", label: "Leave" },
     { href: "/dashboard/settings", label: "Settings" },
@@ -94,21 +86,34 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await getSession();
 
   if (!session?.user) {
     redirect("/login");
   }
 
   const navLinks = [...NAV_BY_ROLE[session.user.role]];
-  const [unread] = await db.select({ value: count() }).from(notifications).where(and(eq(notifications.userId, session.user.id), isNull(notifications.readAt)));
+  const [[unread], account] = await Promise.all([
+    db.select({ value: count() }).from(notifications)
+      .where(and(eq(notifications.userId, session.user.id), isNull(notifications.readAt))),
+    getPortalAccount(session.user.id),
+  ]);
+  const displayName = account?.username || account?.fullName || session.user.email;
   navLinks.splice(1, 0, { href: "/dashboard/notifications", label: `Notifications${unread.value ? ` (${unread.value})` : ""}` });
-  if (session.user.role !== "admin") navLinks.splice(1, 0, { href: "/dashboard/attendance", label: "My attendance" });
+  navLinks.splice(1, 0, { href: "/dashboard/attendance", label: "My attendance" });
+  const position = session.user.role === "exco" || session.user.role === "admin"
+    ? account?.position ?? null
+    : null;
+  if (canValidateMembershipFitness(session.user.role, position)) {
+    navLinks.splice(1, 0, { href: "/dashboard/membership-fitness", label: "Membership fitness" });
+  }
+  if (session.user.role !== "admin" && profileReviewStages(session.user.role, position).length) {
+    navLinks.splice(1, 0, { href: "/dashboard/verifications", label: "Verifications" });
+  }
 
   // An officer's post adds a dashboard of its own, named after the post, right
   // below their member dashboard.
   if (session.user.role === "exco" || session.user.role === "admin") {
-    const position = await getExcoPosition(session.user.id);
     if (position === "treasurer") {
       navLinks.splice(1, 0, { href: "/dashboard/treasury/logbook", label: "Treasurer logbook" });
       if (session.user.role !== "admin") navLinks.splice(1, 0, { href: "/dashboard/treasury/admissions", label: "Registration dues" });
@@ -135,17 +140,10 @@ export default async function DashboardLayout({
           <ClubLogo size={32} />
           <span className="text-sm font-semibold text-white">UNILAG TKD</span>
         </Link>
-        <nav className="sidebar-scroll flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-4 text-sm font-medium">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="rounded-lg px-3 py-2 text-white hover:bg-white/15"
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <DashboardNavLinks
+          links={navLinks}
+          className="sidebar-scroll flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-4 text-sm font-medium"
+        />
         <div className="flex-none border-t border-white/15 p-4">
           <div className="mb-3 break-words text-xs text-blue-100">
             Signed in as <span className="font-medium text-white">{session.user.email}</span>
@@ -176,7 +174,14 @@ export default async function DashboardLayout({
           role={session.user.role}
           signOutAction={signOutAction}
         />
-        <main id="main-content" className="min-w-0 break-words p-4 sm:p-6 lg:p-8"><SessionTimer />{children}</main>
+        <main id="main-content" className="min-w-0 break-words p-4 sm:p-6 lg:p-8">
+          <p className="mb-4 text-lg font-semibold text-brand-black print:hidden">
+            {displayName ? `Welcome, ${displayName}` : "Welcome"}
+          </p>
+          <SessionTimer />
+          {children}
+        </main>
+        <DebtReminder />
       </div>
     </div>
   );

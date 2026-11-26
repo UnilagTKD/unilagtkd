@@ -2,7 +2,7 @@ import { recordIdFromSlug } from "@/lib/record-slug";
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { db } from "@/db";
 import { dues, users, memberProfiles } from "@/db/schema";
 import { requireExcoPermission } from "@/lib/session";
@@ -86,7 +86,7 @@ export default async function ReceiptPage({
 }: {
   params: Promise<{ duesId: string }>;
 }) {
-  const session = await auth();
+  const session = await getSession();
   if (!session?.user) redirect("/login");
 
   const { duesId: slug } = await params;

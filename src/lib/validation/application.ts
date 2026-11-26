@@ -4,6 +4,7 @@ import { lagosToday, memberAge } from "@/lib/members";
 import { surnameSchema } from "./surname";
 import { receiptImageSchema } from "./admission";
 import { MEMBERSHIP_CATEGORIES, academicInfoError } from "./academic";
+import { usernameSchema } from "./username";
 
 export const applicationSchema = z.object({
   semesterLabel: z.string().trim().min(1).max(150),
@@ -18,7 +19,7 @@ export const applicationSchema = z.object({
   photoData: z.string().min(1, "A passport photograph is required").max(2_800_000).refine(isSafeImageReference, "Choose a supported image under 2MB or an HTTPS photo URL."),
 
   // 2. Personal & academic profile
-  username: z.string().trim().toLowerCase().regex(/^$|^[a-z0-9_]{3,30}$/, "Use 3-30 letters, numbers, or underscores").optional(),
+  username: z.string().trim().pipe(z.literal("").or(usernameSchema)).optional(),
   fullName: z.string().trim().min(2, "Full name is required").max(255),
   surname: surnameSchema,
   matricOrStaffNo: z.string().trim().max(100).optional(),

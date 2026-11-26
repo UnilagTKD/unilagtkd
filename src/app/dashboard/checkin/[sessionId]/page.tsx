@@ -2,7 +2,7 @@ import { expireTrainingSessions } from "@/lib/training-session-data";
 import { sessionHasEnded, sessionExpiresAt } from "@/lib/training-session";
 import { SessionExpiryRefresh } from "@/components/dashboard/session-expiry-refresh";
 import { notFound, redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { getSession } from "@/lib/session";
 import { db } from "@/db";
 import { trainingSessions } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -18,7 +18,7 @@ export default async function SessionCheckInPage({
 }: {
   params: Promise<{ sessionId: string }>;
 }) {
-  const session = await auth();
+  const session = await getSession();
   const { sessionId: slug } = await params;
   const sessionId = recordIdFromSlug(slug);
   if (!sessionId) notFound();

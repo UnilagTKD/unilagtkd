@@ -1,5 +1,6 @@
 ﻿import { z } from "zod";
 import { MEMBERSHIP_CATEGORIES } from "./academic";
+import { usernameSchema } from "./username";
 export const profileSchema = z.object({
   levelYear: z.string().trim().max(20),
   phone: z.string().trim().max(30),
@@ -13,8 +14,10 @@ export const profileSchema = z.object({
   institution: z.string().trim().max(200).optional(),
   occupation: z.string().trim().max(150).optional(),
 }).strict();
-export type ProfileInput = z.infer<typeof profileSchema>;
+export const profileChangeSchema = profileSchema.partial().extend({ username: usernameSchema.optional() });
+export type ProfileInput = z.infer<typeof profileSchema> & { username?: string };
 export const PROFILE_FIELD_LABELS: Record<keyof ProfileInput, string> = {
+  username: "Username",
   levelYear: "Level / Year", phone: "Phone Number", address: "Residential Address", beltGrade: "Current Belt / Grade",
   membershipCategory: "Membership category", matricOrStaffNo: "Matriculation / Staff number", department: "Department / Course / Unit", faculty: "Faculty", graduationYear: "Graduation year", institution: "Institution / Organisation", occupation: "Occupation / Activity",
 };

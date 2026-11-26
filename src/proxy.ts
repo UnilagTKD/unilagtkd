@@ -24,6 +24,9 @@ const checkDashboard: (request: NextAuthRequest, event: NextFetchEvent) => NextR
   const session = req.auth;
 
   if (!session?.user) {
+    if (pathname === "/dashboard/membership-fitness/scores" && req.method === "POST") {
+      return NextResponse.json({ error: "Sign in to validate scores." }, { status: 401 });
+    }
     const loginUrl = new URL("/login", req.nextUrl.origin);
     return NextResponse.redirect(loginUrl);
   }

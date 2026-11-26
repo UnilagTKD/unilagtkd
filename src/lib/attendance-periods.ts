@@ -1,18 +1,27 @@
 import "server-only";
+import { cache } from "react";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { attendancePeriods, trainingSessions } from "@/db/schema";
 export type AttendanceTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type AttendanceDatabase = typeof db | AttendanceTransaction;
-export async function getActiveAttendancePeriod(client: AttendanceDatabase = db) {
+async function readActiveAttendancePeriod(client: AttendanceDatabase) {
   const [period] = await client.select().from(attendancePeriods).where(isNull(attendancePeriods.closedAt)).limit(1);
   return period ?? null;
 }
+const readActivePeriodForRender = cache(() => readActiveAttendancePeriod(db));
+export function getActiveAttendancePeriod(client: AttendanceDatabase = db) {
+  return client === db ? readActivePeriodForRender() : readActiveAttendancePeriod(client);
+}
 export async function getAttendancePeriod(periodId?: string, client: AttendanceDatabase = db) {
   if (!periodId) return getActiveAttendancePeriod(client);
+  return client === db ? readPeriodForRender(periodId) : readPeriod(periodId, client);
+}
+async function readPeriod(periodId: string, client: AttendanceDatabase) {
   const [period] = await client.select().from(attendancePeriods).where(eq(attendancePeriods.id, periodId)).limit(1);
   return period ?? null;
 }
+const readPeriodForRender = cache((periodId: string) => readPeriod(periodId, db));
 export function listAttendancePeriods(client: AttendanceDatabase = db) {
   return client.select().from(attendancePeriods).orderBy(desc(attendancePeriods.openedAt));
 }
